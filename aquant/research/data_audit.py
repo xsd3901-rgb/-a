@@ -302,7 +302,10 @@ def audit_market_store(
 def run_data_audit(
     limit: int | None = None,
     *,
-    lookback_calendar_days: int = 400,
+    lookback_calendar_days: int = (
+        SETTINGS.feature_validation_calendar_days
+        + SETTINGS.feature_validation_warmup_calendar_days
+    ),
     min_coverage: float = 0.90,
 ) -> tuple[pd.DataFrame, dict]:
     ensure_directories()
