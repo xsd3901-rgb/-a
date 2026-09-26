@@ -13,6 +13,7 @@ def main() -> None:
     assert "一键系统验收" in text
     assert "建立/更新本地数据库" in text
     assert "本地数据审计" in text
+    assert "就绪检查" in text
 
     status = client.get("/api/status")
     assert status.status_code == 200
