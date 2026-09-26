@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -39,6 +40,9 @@ class FakeMarketDataService:
     def __init__(self, *args, **kwargs) -> None:
         self._history = make_history()
 
+    def latest_trade_date(self) -> pd.Timestamp:
+        return pd.Timestamp("2025-11-07")
+
     def stock_list(self) -> pd.DataFrame:
         return pd.DataFrame(
             [
@@ -67,10 +71,26 @@ def main() -> None:
     with TemporaryDirectory() as tmp:
         os.chdir(tmp)
         try:
-            with patch.object(scanner, "MarketDataService", FakeMarketDataService):
+            fake_snapshot = SimpleNamespace(
+                regime="偏强",
+                score=35.0,
+                index_count=5,
+                details=pd.DataFrame(
+                    [{"index_code": "sh000001", "index_name": "上证指数", "score": 2.0}]
+                ),
+            )
+            with (
+                patch.object(scanner, "MarketDataService", FakeMarketDataService),
+                patch.object(scanner, "MarketContextService", lambda: object()),
+                patch.object(scanner, "detect_market_regime", lambda *args, **kwargs: fake_snapshot),
+            ):
                 selected = scanner.scan_market(limit=2, refresh=False)
                 assert isinstance(selected, pd.DataFrame)
                 assert (scanner.SETTINGS.report_dir / "scan_latest.csv").exists()
+                assert (scanner.SETTINGS.report_dir / "market_environment_latest.csv").exists()
+                if not selected.empty:
+                    assert "市场环境" in selected.columns
+                    assert set(selected["市场环境"]) == {"偏强"}
 
             with patch.object(backtest, "MarketDataService", FakeMarketDataService):
                 trades = backtest.run_backtest(limit=2, refresh=False, persist=False)
