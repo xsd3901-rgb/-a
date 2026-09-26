@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from aquant.data.continuous import build_point_in_time_continuous
 from aquant.data.providers.baostock_provider import BaoStockProvider
 from aquant.data.providers.base import is_shsz_a_share
 from aquant.data.providers.eastmoney_akshare import EastMoneyAKShareProvider
@@ -275,6 +276,56 @@ class MarketDataService:
         if result.empty:
             result = local
         return self._legacy_frame(result)
+
+    def research_history_range(
+        self,
+        code: str,
+        start_date: str,
+        end_date: str,
+        *,
+        refresh: bool = False,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """返回(研究信号价格, 未复权执行价格)。
+
+        历史研究优先从未复权点时字段构造连续信号价格，避免直接使用
+        查询时点的前复权历史造成潜在的未来公司行动信息渗透。
+        若 pct_change 覆盖不足，则退回 qfq 仅作为兼容后备。
+        """
+        execution = self.history_range(
+            code,
+            start_date,
+            end_date,
+            adjust="none",
+            refresh=refresh,
+            prefer_point_in_time=True,
+        )
+        if execution.empty:
+            return pd.DataFrame(), pd.DataFrame()
+
+        coverage = 0.0
+        if "pct_change" in execution.columns:
+            coverage = float(
+                pd.to_numeric(
+                    execution["pct_change"], errors="coerce"
+                ).notna().mean()
+            )
+
+        if coverage >= 0.70:
+            signal = build_point_in_time_continuous(execution)
+            return signal, execution
+
+        signal = self.history_range(
+            code,
+            start_date,
+            end_date,
+            adjust=self.adjust,
+            refresh=refresh,
+            prefer_point_in_time=True,
+        )
+        if not signal.empty:
+            signal = signal.copy()
+            signal["signal_price_mode"] = "qfq_fallback"
+        return signal, execution
 
     def history(self, code: str, refresh: bool = False) -> pd.DataFrame:
         symbol = str(code).strip().zfill(6)[-6:]
