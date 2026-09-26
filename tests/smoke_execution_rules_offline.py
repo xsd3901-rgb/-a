@@ -76,6 +76,15 @@ def main() -> None:
     assert trades[0]["延迟卖出交易日"] == 1
     assert trades[0]["卖出日"] == pd.Timestamp(delayed.loc[122, "date"]).strftime("%Y-%m-%d")
 
+    # T+1：买入当日即使触发目标价，也不能当天卖出。
+    t1 = base_scored()
+    t1.loc[120, "high"] = 14.0
+    t1.loc[121, ["open", "high", "low", "close"]] = [10.0, 10.1, 9.9, 10.0]
+    trades = run_case(t1, max_hold_days=2)
+    assert len(trades) == 1
+    assert trades[0]["买入日"] != trades[0]["卖出日"]
+    assert trades[0]["卖出日"] == pd.Timestamp(t1.loc[121, "date"]).strftime("%Y-%m-%d")
+
     # 停牌/不可交易的入场日同样不能开仓。
     suspended = base_scored()
     suspended.loc[120, "trade_status"] = 0
