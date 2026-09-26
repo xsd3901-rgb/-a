@@ -15,6 +15,7 @@ from aquant.research.feature_selection import build_v2_candidate
 from aquant.research.data_audit import run_data_audit
 from aquant.research.feature_validation import run_feature_validation
 from aquant.research.model_compare import run_model_comparison
+from aquant.research.local_prepare import run_local_prepare
 from aquant.research.readiness import release_readiness
 from aquant.research.system_validation import run_system_validation
 from aquant.research.stock_detail import stock_detail
@@ -69,7 +70,24 @@ def _execute_task(job_id: str, action: str, payload: dict) -> None:
         refresh = bool(payload.get("refresh", False))
         horizon = int(payload.get("horizon") or 10)
 
-        if action == "readiness":
+        if action == "prepare_local":
+            validation_limit = 200 if limit is None else max(1, min(int(limit), 500))
+            steps, summary = run_local_prepare(
+                bootstrap_limit=limit,
+                validation_limit=validation_limit,
+                horizon=horizon,
+                refresh=refresh,
+                progress=lambda message: _set_job(
+                    job_id,
+                    status="running",
+                    message=message,
+                ),
+            )
+            result = {
+                "summary": summary,
+                "rows": _records(steps, 20),
+            }
+        elif action == "readiness":
             frame, summary = release_readiness(audit_limit=limit)
             result = {
                 "summary": summary,
@@ -315,6 +333,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1327;padding:12px;b
       <label><input id="refresh" type="checkbox"> 强制刷新</label>
     </div>
     <div class="controls" style="margin-top:12px">
+      <button class="primary" onclick="runTask('prepare_local')">首次完整准备</button>
       <button class="primary" onclick="runTask('bootstrap')">建立/更新本地数据库</button>
       <button onclick="runTask('readiness')">就绪检查</button>
       <button onclick="runTask('audit_data')">本地数据审计</button>
@@ -453,6 +472,7 @@ def api_status():
 @app.post("/api/run/<action>")
 def api_run(action: str):
     allowed = {
+        "prepare_local",
         "readiness",
         "audit_data",
         "stock_detail",
