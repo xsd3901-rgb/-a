@@ -13,6 +13,7 @@ from aquant.research.data_audit import run_data_audit
 from aquant.research.feature_selection import build_v2_candidate
 from aquant.research.walk_forward import run_walk_forward
 from aquant.research.model_compare import run_model_comparison
+from aquant.research.local_prepare import run_local_prepare
 from aquant.research.readiness import release_readiness
 from aquant.research.system_validation import run_system_validation
 from aquant.research.stock_detail import stock_detail
@@ -25,6 +26,12 @@ from scanner import scan_market
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="A股短期波段量化选股器")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    prepare = sub.add_parser("prepare-local", help="首次本地完整准备：建库、审计、研究验收、就绪检查")
+    prepare.add_argument("--bootstrap-limit", type=int, default=0, help="建库股票数；0=全沪深市场")
+    prepare.add_argument("--validation-limit", type=int, default=200, help="研究验收股票数，默认200")
+    prepare.add_argument("--horizon", type=int, choices=[5, 10, 20], default=10, help="V2预测窗口")
+    prepare.add_argument("--refresh", action="store_true", help="强制刷新远端数据")
 
     sub.add_parser("readiness", help="检查代码、依赖、本地数据和研究验收是否就绪")
 
@@ -77,6 +84,26 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+
+    if args.command == "prepare-local":
+        bootstrap_limit = (
+            args.bootstrap_limit if args.bootstrap_limit and args.bootstrap_limit > 0 else None
+        )
+        validation_limit = (
+            args.validation_limit if args.validation_limit and args.validation_limit > 0 else None
+        )
+        steps, summary = run_local_prepare(
+            bootstrap_limit=bootstrap_limit,
+            validation_limit=validation_limit,
+            horizon=args.horizon,
+            refresh=args.refresh,
+        )
+        print("\n首次本地准备步骤：")
+        print(steps.to_string(index=False))
+        print("\n汇总：")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        return
 
     if args.command == "readiness":
         report, summary = release_readiness()
