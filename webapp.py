@@ -125,6 +125,11 @@ def _execute_task(job_id: str, action: str, payload: dict) -> None:
             status_frame, summary = bootstrap_market(
                 limit=limit,
                 refresh=refresh,
+                progress=lambda message: _set_job(
+                    job_id,
+                    status="running",
+                    message=message,
+                ),
             )
             result = {
                 "summary": summary,
