@@ -42,7 +42,7 @@ def _normalize_hist(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     aliases = {
-        "日期": "date", "date": "date",
+        "日期": "date", "date": "date", "index": "date",
         "开盘": "open", "open": "open",
         "最高": "high", "high": "high",
         "最低": "low", "low": "low",
@@ -145,7 +145,9 @@ class FreeAStockData:
                     end_date=end.strftime("%Y%m%d"),
                     adjust=SETTINGS.adjust,
                 )
-                hist = _normalize_hist(raw.reset_index() if raw.index.name else raw)
+                if "date" not in raw.columns and "日期" not in raw.columns:
+                    raw = raw.reset_index()
+                hist = _normalize_hist(raw)
             except Exception as exc:
                 errors.append(f"stock_zh_a_daily: {exc}")
 
