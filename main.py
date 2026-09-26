@@ -8,6 +8,8 @@ from evaluator import evaluate_by_market_regime, evaluate_trades, metrics_frame
 from aquant.research.feature_validation import run_feature_validation
 from aquant.research.feature_selection import build_v2_candidate
 from aquant.research.walk_forward import run_walk_forward
+from aquant.research.model_compare import run_model_comparison
+from aquant.research.portfolio import simulate_portfolio
 from optimizer import optimize_parameters
 from profile import load_strategy_profile
 from scanner import scan_market
@@ -33,6 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     wf = sub.add_parser("walk-forward", help="对 V2 候选模型执行滚动样本外验证")
     wf.add_argument("--horizon", type=int, choices=[5, 10, 20], default=10, help="预测窗口，默认10日")
+
+    compare = sub.add_parser("compare-models", help="同一滚动样本外区间比较 V1 与 V2 真实成交")
+    compare.add_argument("--horizon", type=int, choices=[5, 10, 20], default=10, help="V2预测窗口，默认10日")
 
     opt = sub.add_parser("optimize", help="训练/验证分段的受控参数优化")
     opt.add_argument("--limit", type=int, default=100, help="优化样本股票数，默认100")
@@ -68,12 +73,27 @@ def main() -> None:
                 index=False,
                 encoding="utf-8-sig",
             )
+        _, equity, portfolio_metrics = simulate_portfolio(trades)
+        pd.DataFrame([portfolio_metrics]).to_csv(
+            SETTINGS.report_dir / "backtest_portfolio_metrics.csv",
+            index=False,
+            encoding="utf-8-sig",
+        )
+        if not equity.empty:
+            equity.to_csv(
+                SETTINGS.report_dir / "backtest_portfolio_equity.csv",
+                index=False,
+                encoding="utf-8-sig",
+            )
         print("\n回测统计：")
         for key, value in metrics.items():
             print(f"{key}: {value}")
         if not by_regime.empty:
             print("\n按沪深市场环境拆分：")
             print(by_regime.to_string(index=False))
+        print("\n有限资金组合模拟：")
+        for key, value in portfolio_metrics.items():
+            print(f"{key}: {value}")
         return
 
     if args.command == "features":
@@ -110,6 +130,15 @@ def main() -> None:
             print("\nWalk-Forward 分折结果：")
             print(folds.to_string(index=False))
         print("\nWalk-Forward 汇总：")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        return
+
+    if args.command == "compare-models":
+        comparison, summary = run_model_comparison(horizon=args.horizon)
+        print("\nV1 / V2 样本外真实成交对比：")
+        print(comparison.to_string(index=False))
+        print("\n模型对比结论：")
         for key, value in summary.items():
             print(f"{key}: {value}")
         return
