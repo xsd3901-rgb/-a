@@ -18,7 +18,8 @@ class Settings:
     cache_hours: int = 18
     adjust: str = "qfq"
     exclude_st: bool = True
-    exclude_bj: bool = False
+    exclude_bj: bool = True
+    market_scope: str = "shsz"  # 当前主线：沪深 A 股
 
     # 扫描
     min_bars: int = 120
