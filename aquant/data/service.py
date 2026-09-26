@@ -7,6 +7,7 @@ from aquant.data.providers.eastmoney_akshare import EastMoneyAKShareProvider
 from aquant.data.quality import validate_bar_frame
 from aquant.data.reference_service import ReferenceDataService
 from aquant.data.schema import FIELDS
+from aquant.data.safe_fetch import fetch_stock_list_with_timeout
 from aquant.data.storage import MarketStore
 from config import SETTINGS
 
@@ -31,14 +32,14 @@ class MarketDataService:
         errors: list[str] = []
         try:
             df = self.reference.stock_list(
-                fetcher=self.primary.fetch_stock_list,
+                fetcher=lambda: fetch_stock_list_with_timeout("eastmoney", 12.0),
                 max_age_hours=float(SETTINGS.cache_hours),
             )
         except Exception as exc:
             errors.append(f"eastmoney/akshare: {exc}")
             try:
                 df = self.reference.stock_list(
-                    fetcher=self.backup.fetch_stock_list,
+                    fetcher=lambda: fetch_stock_list_with_timeout("baostock", 15.0),
                     max_age_hours=float(SETTINGS.cache_hours),
                     force=True,
                 )
