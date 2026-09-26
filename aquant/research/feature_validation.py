@@ -11,7 +11,8 @@ import pandas as pd
 
 from aquant.data.context_service import MarketContextService
 from aquant.data.service import MarketDataService
-from aquant.features.pipeline import FeaturePipeline
+from backtest import EXECUTION_COLUMNS, attach_execution_bars
+from strategy import score_history
 from aquant.runtime.resources import current_profile
 from config import SETTINGS, ensure_directories
 
@@ -334,7 +335,27 @@ def _sample_columns() -> list[str]:
     return [
         "code",
         "name",
+        "listing_date",
         "date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "preclose",
+        "volume",
+        "amount",
+        "turnover",
+        "pct_change",
+        "trade_status",
+        "is_st",
+        "atr14",
+        "atr_pct",
+        "ma10",
+        "macd_dif",
+        "macd_dea",
+        "score",
+        "signal",
+        *(f"exec_{col}" for col in EXECUTION_COLUMNS),
         *FEATURE_SPECS.keys(),
         *(f"fwd_ret_{h}d" for h in HORIZONS),
     ]
@@ -486,7 +507,6 @@ def run_feature_validation(
         shutil.rmtree(work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    pipeline = FeaturePipeline()
     buffer: list[pd.DataFrame] = []
     total_rows = 0
     valid_stocks = 0
@@ -526,7 +546,16 @@ def run_feature_validation(
             if len(hist) < SETTINGS.min_bars + max(HORIZONS):
                 continue
 
-            feat = pipeline.transform(hist, benchmark_bars=benchmark)
+            feat = score_history(hist, benchmark_bars=benchmark)
+            execution = provider.history_range(
+                code,
+                stock_start.strftime("%Y-%m-%d"),
+                stock_end.strftime("%Y-%m-%d"),
+                adjust="none",
+                refresh=False,
+                prefer_point_in_time=True,
+            )
+            feat = attach_execution_bars(feat, execution)
             feat = add_forward_returns(feat)
             feat["date"] = pd.to_datetime(
                 feat["date"], errors="coerce"
@@ -536,16 +565,23 @@ def run_feature_validation(
                 & (feat["date"] <= market_end)
             ].copy()
 
-            if "trade_status" in feat.columns:
+            trade_status_col = (
+                "exec_trade_status"
+                if "exec_trade_status" in feat.columns
+                else "trade_status"
+            )
+            if trade_status_col in feat.columns:
                 feat = feat[
                     pd.to_numeric(
-                        feat["trade_status"], errors="coerce"
+                        feat[trade_status_col], errors="coerce"
                     ).fillna(1).eq(1)
                 ]
-            if SETTINGS.exclude_st and "is_st" in feat.columns:
+
+            st_col = "exec_is_st" if "exec_is_st" in feat.columns else "is_st"
+            if SETTINGS.exclude_st and st_col in feat.columns:
                 feat = feat[
                     ~pd.to_numeric(
-                        feat["is_st"], errors="coerce"
+                        feat[st_col], errors="coerce"
                     ).fillna(0).eq(1)
                 ]
 
@@ -554,6 +590,11 @@ def run_feature_validation(
 
             feat["code"] = code
             feat["name"] = name
+            feat["listing_date"] = (
+                pd.Timestamp(listing_date).normalize()
+                if pd.notna(listing_date)
+                else pd.NaT
+            )
             buffer.append(feat)
             valid_stocks += 1
 
