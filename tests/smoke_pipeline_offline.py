@@ -36,6 +36,23 @@ def make_history() -> pd.DataFrame:
     )
 
 
+class FakeMarketContextService:
+    def index_daily(self, index_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        dates = pd.bdate_range(pd.Timestamp(start_date), pd.Timestamp(end_date))
+        close = np.linspace(3000.0, 3300.0, len(dates))
+        return pd.DataFrame(
+            {
+                "trade_date": dates,
+                "open": close * 0.998,
+                "high": close * 1.005,
+                "low": close * 0.995,
+                "close": close,
+                "volume": np.full(len(dates), 1_000_000.0),
+                "amount": np.full(len(dates), 1_000_000_000.0),
+            }
+        )
+
+
 class FakeMarketDataService:
     def __init__(self, *args, **kwargs) -> None:
         self._history = make_history()
@@ -81,7 +98,7 @@ def main() -> None:
             )
             with (
                 patch.object(scanner, "MarketDataService", FakeMarketDataService),
-                patch.object(scanner, "MarketContextService", lambda: object()),
+                patch.object(scanner, "MarketContextService", FakeMarketContextService),
                 patch.object(scanner, "detect_market_regime", lambda *args, **kwargs: fake_snapshot),
             ):
                 selected = scanner.scan_market(limit=2, refresh=False)
