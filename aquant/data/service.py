@@ -3,6 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 from aquant.data.providers.baostock_provider import BaoStockProvider
+from aquant.data.providers.base import is_shsz_a_share
 from aquant.data.providers.eastmoney_akshare import EastMoneyAKShareProvider
 from aquant.data.quality import validate_bar_frame
 from aquant.data.reference_service import ReferenceDataService
@@ -69,7 +70,9 @@ class MarketDataService:
 
         if SETTINGS.exclude_st:
             out = out[~out["name"].str.upper().str.contains("ST", na=False)]
-        if SETTINGS.exclude_bj:
+        if SETTINGS.market_scope == "shsz":
+            out = out[out["code"].map(is_shsz_a_share)]
+        elif SETTINGS.exclude_bj:
             out = out[~out["code"].str.startswith(("4", "8", "92"))]
         return out[["code", "name"]].reset_index(drop=True)
 
@@ -88,7 +91,10 @@ class MarketDataService:
 
         当前生命周期主资料来自 BaoStock，北交所历史覆盖后续再补独立来源。
         """
-        return self.universe.universe_on(as_of_date, refresh=refresh)
+        out = self.universe.universe_on(as_of_date, refresh=refresh)
+        if SETTINGS.market_scope == "shsz" and not out.empty:
+            out = out[out["code"].map(is_shsz_a_share)].reset_index(drop=True)
+        return out
 
     def latest_trade_date(self) -> pd.Timestamp:
         if self._cached_market_date is not None:
