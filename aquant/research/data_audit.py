@@ -132,6 +132,9 @@ def audit_market_store(
                     "滞后交易日": 0,
                     "重复日期": 0,
                     "涨跌幅字段覆盖率%": 0.0,
+                    "昨收字段覆盖率%": 0.0,
+                    "交易状态字段覆盖率%": 0.0,
+                    "历史ST字段覆盖率%": 0.0,
                     "QFQ存在": (qfq_dir / f"{code}.parquet").exists(),
                 }
             )
@@ -152,6 +155,9 @@ def audit_market_store(
                     "滞后交易日": 0,
                     "重复日期": 0,
                     "涨跌幅字段覆盖率%": 0.0,
+                    "昨收字段覆盖率%": 0.0,
+                    "交易状态字段覆盖率%": 0.0,
+                    "历史ST字段覆盖率%": 0.0,
                     "QFQ存在": (qfq_dir / f"{code}.parquet").exists(),
                 }
             )
@@ -214,21 +220,27 @@ def audit_market_store(
             coverage = 1.0 if expected_count > 0 else 0.0
             stale_open_days = 0
 
+        window_mask = frame["_date"].isin(observed_window)
+
+        def field_coverage(column: str) -> float:
+            if column not in frame.columns or not bool(window_mask.any()):
+                return 0.0
+            return float(
+                pd.to_numeric(
+                    frame.loc[window_mask, column],
+                    errors="coerce",
+                ).notna().mean()
+            )
+
         pct_col = (
             FIELDS.pct_change
             if FIELDS.pct_change in frame.columns
             else "pct_change"
         )
-        if pct_col in frame.columns and len(observed_window):
-            window_mask = frame["_date"].isin(observed_window)
-            pct_coverage = float(
-                pd.to_numeric(
-                    frame.loc[window_mask, pct_col],
-                    errors="coerce",
-                ).notna().mean()
-            )
-        else:
-            pct_coverage = 0.0
+        pct_coverage = field_coverage(pct_col)
+        preclose_coverage = field_coverage(FIELDS.preclose)
+        trade_status_coverage = field_coverage(FIELDS.trade_status)
+        is_st_coverage = field_coverage(FIELDS.is_st)
 
         reasons: list[str] = []
         hard_fail = False
@@ -243,8 +255,21 @@ def audit_market_store(
             reasons.append(f"滞后{stale_open_days}个交易日")
             if stale_open_days > 2:
                 hard_fail = True
+        # 正式历史研究必须有足够的点时字段；否则会退回 QFQ 或无法
+        # 正确识别历史停牌/ST，不能标记为正式验收可用。
         if pct_coverage < 0.70:
             reasons.append(f"pct_change覆盖{pct_coverage * 100:.1f}%")
+            hard_fail = True
+        if preclose_coverage < 0.95:
+            reasons.append(f"昨收覆盖{preclose_coverage * 100:.1f}%")
+            hard_fail = True
+        if trade_status_coverage < 0.95:
+            reasons.append(f"交易状态覆盖{trade_status_coverage * 100:.1f}%")
+            hard_fail = True
+        if is_st_coverage < 0.95:
+            reasons.append(f"历史ST覆盖{is_st_coverage * 100:.1f}%")
+            hard_fail = True
+
         qfq_exists = (qfq_dir / f"{code}.parquet").exists()
         if not qfq_exists:
             reasons.append("缺少QFQ扫描缓存")
@@ -270,6 +295,11 @@ def audit_market_store(
                 "滞后交易日": stale_open_days,
                 "重复日期": duplicate_dates,
                 "涨跌幅字段覆盖率%": round(pct_coverage * 100.0, 2),
+                "昨收字段覆盖率%": round(preclose_coverage * 100.0, 2),
+                "交易状态字段覆盖率%": round(
+                    trade_status_coverage * 100.0, 2
+                ),
+                "历史ST字段覆盖率%": round(is_st_coverage * 100.0, 2),
                 "QFQ存在": bool(qfq_exists),
             }
         )
@@ -383,6 +413,14 @@ def run_data_audit(
         min_coverage=min_coverage,
     )
     summary["股票池来源"] = universe_source
+    if universe_source != "security_lifecycle":
+        if summary.get("状态") == "通过":
+            summary["状态"] = "可用但有警告"
+        summary["说明"] = (
+            str(summary.get("说明", ""))
+            + " 历史生命周期股票池不可用；当前仅能做降级完整性检查，"
+            "不应据此宣称已完成无幸存者偏差的正式验收。"
+        ).strip()
 
     details.to_csv(
         SETTINGS.report_dir / "data_audit.csv",
