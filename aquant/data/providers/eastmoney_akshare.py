@@ -71,6 +71,7 @@ class EastMoneyAKShareProvider(DailyBarProvider):
             "成交量": FIELDS.volume,
             "成交额": FIELDS.amount,
             "换手率": FIELDS.turnover,
+            "涨跌幅": FIELDS.pct_change,
         }
         out = raw.rename(columns=rename).copy()
         if FIELDS.symbol not in out.columns:
@@ -78,7 +79,7 @@ class EastMoneyAKShareProvider(DailyBarProvider):
         out[FIELDS.symbol] = out[FIELDS.symbol].map(normalize_symbol)
         out[FIELDS.trade_date] = pd.to_datetime(out[FIELDS.trade_date]).dt.normalize()
 
-        numeric = [FIELDS.open, FIELDS.high, FIELDS.low, FIELDS.close, FIELDS.volume, FIELDS.amount, FIELDS.turnover]
+        numeric = [FIELDS.open, FIELDS.high, FIELDS.low, FIELDS.close, FIELDS.volume, FIELDS.amount, FIELDS.turnover, FIELDS.pct_change]
         for col in numeric:
             if col in out.columns:
                 out[col] = pd.to_numeric(out[col], errors="coerce")
@@ -87,6 +88,8 @@ class EastMoneyAKShareProvider(DailyBarProvider):
         out[FIELDS.volume] = out[FIELDS.volume] * 100.0
         # 能返回日线记录本身代表该交易日存在成交记录；停牌日通常不会出现在该接口结果中。
         out[FIELDS.trade_status] = 1
+        if FIELDS.preclose not in out.columns:
+            out[FIELDS.preclose] = out[FIELDS.close].shift(1)
         out[FIELDS.provider] = self.info.provider
         out[FIELDS.adapter] = self.info.adapter
         out[FIELDS.adjustment] = adjust
@@ -101,9 +104,11 @@ class EastMoneyAKShareProvider(DailyBarProvider):
             FIELDS.high,
             FIELDS.low,
             FIELDS.close,
+            FIELDS.preclose,
             FIELDS.volume,
             FIELDS.amount,
             FIELDS.turnover,
+            FIELDS.pct_change,
             FIELDS.trade_status,
             FIELDS.provider,
             FIELDS.adapter,
