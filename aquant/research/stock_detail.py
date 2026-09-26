@@ -5,6 +5,7 @@ import pandas as pd
 from aquant.data.context_service import MarketContextService
 from aquant.data.service import MarketDataService
 from config import SETTINGS
+from profile import load_strategy_profile
 from strategy import evaluate_latest, score_history
 
 
@@ -50,13 +51,16 @@ def stock_detail(
     )
     latest = scored.iloc[-1]
 
+    active_threshold = int(load_strategy_profile()["score_threshold"])
+
     summary = {
         "代码": symbol,
         "名称": name,
         "交易日": pd.to_datetime(latest["date"]).strftime("%Y-%m-%d"),
         "现价": signal.close,
         "V1评分": signal.score,
-        "达到当前阈值": bool(signal.score >= SETTINGS.score_threshold),
+        "达到当前阈值": bool(signal.score >= active_threshold),
+        "当前阈值": active_threshold,
         "风险闸门": "通过" if signal.allowed else "阻断",
         "风险等级": signal.risk,
         "风险原因": signal.risk_reasons or "",
