@@ -35,7 +35,7 @@ def main() -> None:
 
     if failed:
         print("\n缺少依赖，请运行: python -m pip install -r requirements.txt")
-        return
+        raise SystemExit(1)
 
     print("\n正在检查内存自适应资源档位...")
     try:
@@ -49,25 +49,39 @@ def main() -> None:
         )
     except Exception as exc:
         print(f"[FAIL] 内存自适应检查失败: {exc}")
+        raise SystemExit(1) from exc
 
     print("\n正在测试新版统一数据层...")
     try:
         from aquant.data.service import MarketDataService
 
         provider = MarketDataService()
+
         stocks = provider.stock_list()
-        print(f"[OK] 股票列表获取成功，共 {len(stocks)} 只")
-        if not stocks.empty:
-            sample = stocks.iloc[0]
-            print(f"正在测试日线、本地库和备用源链路: {sample['code']} {sample['name']}")
-            hist = provider.history(str(sample["code"]), refresh=True)
-            if hist.empty:
-                raise RuntimeError("日线返回为空")
-            print(f"[OK] 日线获取成功，共 {len(hist)} 根K线，最新日期 {hist.iloc[-1]['date']}")
-            print("[OK] 数据已通过统一字段/质量检查并进入 Parquet/DuckDB 数据层")
+        if stocks.empty:
+            raise RuntimeError("股票基础库为空")
+        print(f"[OK] 股票基础库可用，共 {len(stocks)} 只")
+
+        calendar = provider.trade_calendar()
+        if calendar.empty:
+            raise RuntimeError("交易日历为空")
+        latest_trade = provider.latest_trade_date()
+        print(f"[OK] 交易日历可用，最近交易日 {latest_trade:%Y-%m-%d}")
+
+        sample = stocks.iloc[0]
+        print(f"正在测试日线、本地库和备用源链路: {sample['code']} {sample['name']}")
+        hist = provider.history(str(sample["code"]), refresh=True)
+        if hist.empty:
+            raise RuntimeError("日线返回为空")
+        print(f"[OK] 日线获取成功，共 {len(hist)} 根K线，最新日期 {hist.iloc[-1]['date']}")
+
+        provider.refresh_catalog()
+        print("[OK] 股票基础库/交易日历/日线已进入 Parquet，并刷新 DuckDB 目录视图")
+        print("[OK] 数据层端到端诊断通过")
     except Exception as exc:
         print(f"[FAIL] 新版数据层测试失败: {exc}")
-        print("这通常是网络、免费接口临时限制或接口字段变化造成的；主源失败时会尝试 BaoStock 备用源。")
+        print("主源失败时会尝试 BaoStock；若两者都失败，请检查网络或免费接口临时限制。")
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
