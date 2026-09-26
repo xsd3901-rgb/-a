@@ -67,6 +67,8 @@ jobs:
         run: PYTHONPATH=. python tests/smoke_cost_portfolio_offline.py
       - name: Offline continuous price smoke test
         run: PYTHONPATH=. python tests/smoke_continuous_offline.py
+      - name: Offline model comparison smoke test
+        run: PYTHONPATH=. python tests/smoke_model_compare_offline.py
       - name: Offline pipeline smoke test
         run: PYTHONPATH=. python tests/smoke_pipeline_offline.py
       - name: Live free-data probe
