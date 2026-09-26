@@ -10,6 +10,7 @@ on:
     branches: [main]
     paths:
       - "aquant/**"
+      - "tests/**"
       - "scanner.py"
       - "backtest.py"
       - "optimizer.py"
@@ -37,11 +38,17 @@ jobs:
           python - <<'PY'
           from aquant.data.service import MarketDataService
           from aquant.data.reference import ReferenceStore
+          from aquant.data.context_service import MarketContextService
           from aquant.runtime.resources import current_profile
           MarketDataService()
           ReferenceStore()
+          MarketContextService()
           print(current_profile())
           print("core imports ok")
           PY
-      - name: End-to-end data diagnosis
+      - name: Offline data layer smoke test
+        run: python tests/smoke_data_offline.py
+      - name: Live free-data probe
+        continue-on-error: true
+        timeout-minutes: 4
         run: python diagnose.py
