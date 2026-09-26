@@ -59,6 +59,7 @@ jobs:
       - name: Offline pipeline smoke test
         run: PYTHONPATH=. python tests/smoke_pipeline_offline.py
       - name: Live free-data probe
+        if: github.event_name == 'workflow_dispatch'
         continue-on-error: true
         timeout-minutes: 4
         run: python diagnose.py
