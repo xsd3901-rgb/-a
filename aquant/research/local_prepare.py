@@ -47,9 +47,9 @@ def run_local_prepare(
             limit=bootstrap_limit,
             refresh=refresh,
         )
-        ok = int(bootstrap_summary.get("成功", 0))
-        total = int(bootstrap_summary.get("股票池数量", 0))
-        failed = int(bootstrap_summary.get("失败", 0))
+        ok = int(bootstrap_summary.get("成功股票", 0))
+        total = int(bootstrap_summary.get("股票池", 0))
+        failed = int(bootstrap_summary.get("失败股票", 0))
         record(
             "本地建库",
             "OK" if ok > 0 else "FAILED",
