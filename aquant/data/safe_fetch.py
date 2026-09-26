@@ -385,3 +385,118 @@ def fetch_index_daily_with_timeout(
     if status != "ok":
         raise RuntimeError(str(payload))
     return payload if payload is not None else pd.DataFrame()
+
+
+def _adjust_factor_worker(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    out_queue,
+) -> None:
+    try:
+        import baostock as bs
+        from aquant.data.providers.base import normalize_symbol, to_baostock_code
+
+        code = normalize_symbol(symbol)
+        bs_code = to_baostock_code(code)
+        login = bs.login()
+        if getattr(login, "error_code", "-1") != "0":
+            raise RuntimeError(f"BaoStock 登录失败: {login.error_code} {login.error_msg}")
+        try:
+            rs = bs.query_adjust_factor(
+                code=bs_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            if rs.error_code != "0":
+                raise RuntimeError(f"BaoStock 复权因子失败: {rs.error_code} {rs.error_msg}")
+            rows: list[list[str]] = []
+            while rs.next():
+                rows.append(rs.get_row_data())
+            raw = pd.DataFrame(rows, columns=rs.fields)
+        finally:
+            bs.logout()
+
+        if raw.empty:
+            frame = pd.DataFrame(
+                columns=[
+                    "symbol",
+                    "event_date",
+                    "fore_adjust_factor",
+                    "back_adjust_factor",
+                    "adjust_factor",
+                    "provider",
+                ]
+            )
+        else:
+            rename = {
+                "dividOperateDate": "event_date",
+                "foreAdjustFactor": "fore_adjust_factor",
+                "backAdjustFactor": "back_adjust_factor",
+                "adjustFactor": "adjust_factor",
+                "adjustFacto": "adjust_factor",
+            }
+            frame = raw.rename(columns=rename).copy()
+            frame["symbol"] = code
+            frame["event_date"] = pd.to_datetime(frame["event_date"], errors="coerce").dt.normalize()
+            for col in ("fore_adjust_factor", "back_adjust_factor", "adjust_factor"):
+                if col in frame.columns:
+                    frame[col] = pd.to_numeric(frame[col], errors="coerce")
+            frame["provider"] = "baostock"
+            keep = [
+                col
+                for col in [
+                    "symbol",
+                    "event_date",
+                    "fore_adjust_factor",
+                    "back_adjust_factor",
+                    "adjust_factor",
+                    "provider",
+                ]
+                if col in frame.columns
+            ]
+            frame = (
+                frame[keep]
+                .dropna(subset=["event_date"])
+                .sort_values("event_date")
+                .drop_duplicates(["symbol", "event_date"], keep="last")
+                .reset_index(drop=True)
+            )
+
+        out_queue.put(("ok", frame))
+    except Exception as exc:
+        out_queue.put(("error", f"{type(exc).__name__}: {exc}"))
+
+
+def fetch_adjust_factors_with_timeout(
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    timeout_seconds: float = 25.0,
+) -> pd.DataFrame:
+    """抓取单只股票复权因子事件表，并限制免费接口最长等待时间。"""
+    ctx = mp.get_context("spawn")
+    out_queue = ctx.Queue(maxsize=1)
+    proc = ctx.Process(
+        target=_adjust_factor_worker,
+        args=(symbol, start_date, end_date, out_queue),
+        daemon=True,
+    )
+    proc.start()
+    proc.join(timeout_seconds)
+
+    if proc.is_alive():
+        proc.terminate()
+        proc.join(3)
+        raise TimeoutError(f"BaoStock 复权因子请求超过 {timeout_seconds:.0f} 秒: {symbol}")
+
+    try:
+        status, payload = out_queue.get_nowait()
+    except queue.Empty as exc:
+        raise RuntimeError(
+            f"BaoStock 复权因子子进程未返回结果，退出码 {proc.exitcode}: {symbol}"
+        ) from exc
+
+    if status != "ok":
+        raise RuntimeError(str(payload))
+    return payload if payload is not None else pd.DataFrame()
