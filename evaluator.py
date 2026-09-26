@@ -71,3 +71,35 @@ def evaluate_trades(trades: pd.DataFrame) -> dict:
 
 def metrics_frame(metrics: dict) -> pd.DataFrame:
     return pd.DataFrame([metrics])
+
+
+
+def evaluate_by_market_regime(trades: pd.DataFrame) -> pd.DataFrame:
+    """按信号日市场环境拆分回测结果，不改变总策略评价。"""
+    if trades is None or trades.empty or "市场环境" not in trades.columns:
+        return pd.DataFrame(
+            columns=[
+                "市场环境",
+                "交易次数",
+                "胜率%",
+                "平均收益%",
+                "中位收益%",
+                "盈亏比",
+                "最大回撤%",
+                "平均持有交易日",
+                "策略健康度",
+            ]
+        )
+
+    rows: list[dict] = []
+    for regime, group in trades.groupby("市场环境", dropna=False):
+        metrics = evaluate_trades(group)
+        rows.append(
+            {
+                "市场环境": str(regime) if pd.notna(regime) else "未知",
+                **{k: v for k, v in metrics.items() if k != "说明"},
+            }
+        )
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values("交易次数", ascending=False).reset_index(drop=True)
