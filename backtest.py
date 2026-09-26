@@ -7,6 +7,7 @@ import pandas as pd
 from aquant.data.context_service import MarketContextService
 from aquant.data.service import MarketDataService
 from aquant.research.market_regime import build_market_regime_history
+from aquant.risk.costs import AShareCostModel
 from aquant.risk.trading_rules import (
     historical_is_st,
     is_tradable_bar,
@@ -20,7 +21,63 @@ from config import SETTINGS, ensure_directories
 from profile import load_strategy_profile
 from strategy import score_history
 
-ROUND_TRIP_COST_PCT = 0.20  # 粗略计入手续费/滑点，后续可再细化
+EXECUTION_COLUMNS = (
+    "open",
+    "high",
+    "low",
+    "close",
+    "preclose",
+    "volume",
+    "amount",
+    "turnover",
+    "pct_change",
+    "trade_status",
+    "is_st",
+)
+
+
+def _cost_model() -> AShareCostModel:
+    return AShareCostModel(
+        commission_bps=SETTINGS.commission_bps,
+        min_commission_cny=SETTINGS.min_commission_cny,
+        slippage_bps=SETTINGS.slippage_bps,
+    )
+
+
+def _execution_row(row: pd.Series) -> pd.Series:
+    """若存在未复权执行字段，则用它们进行成交/涨跌停判断。"""
+    out = row.copy()
+    for col in EXECUTION_COLUMNS:
+        exec_col = f"exec_{col}"
+        if exec_col in row.index and pd.notna(row[exec_col]):
+            out[col] = row[exec_col]
+    return out
+
+
+def attach_execution_bars(
+    scored: pd.DataFrame,
+    execution_bars: pd.DataFrame | None,
+) -> pd.DataFrame:
+    """把未复权日线以 exec_ 前缀附到信号特征上。
+
+    技术指标继续由复权价格计算；成交、涨跌停、停牌和收益计算使用未复权价格。
+    """
+    if scored is None or scored.empty:
+        return pd.DataFrame() if scored is None else scored.copy()
+    if execution_bars is None or execution_bars.empty:
+        return scored.copy()
+
+    left = scored.copy()
+    right = execution_bars.copy()
+    left["date"] = pd.to_datetime(left["date"], errors="coerce").dt.normalize()
+    right["date"] = pd.to_datetime(right["date"], errors="coerce").dt.normalize()
+
+    keep = ["date"] + [col for col in EXECUTION_COLUMNS if col in right.columns]
+    right = right[keep].drop_duplicates("date", keep="last")
+    right = right.rename(
+        columns={col: f"exec_{col}" for col in keep if col != "date"}
+    )
+    return left.merge(right, on="date", how="left")
 
 
 def _attach_market_regime(
@@ -106,7 +163,7 @@ def _entry_allowed(
     entry_idx: int,
     listing_date: pd.Timestamp | None,
 ) -> tuple[bool, str, object, float | None, float | None]:
-    row = df.iloc[entry_idx]
+    row = _execution_row(df.iloc[entry_idx])
 
     if not is_tradable_bar(row):
         return False, "停牌或不可交易", None, None, None
@@ -143,6 +200,11 @@ def backtest_scored_stock(
     *,
     listing_date: str | pd.Timestamp | None = None,
     signal_start_date: str | pd.Timestamp | None = None,
+    signal_end_date: str | pd.Timestamp | None = None,
+    score_column: str = "score",
+    signal_flag_column: str | None = None,
+    model_name: str = "V1",
+    min_signal_index: int | None = None,
 ) -> list[dict]:
     df = scored.reset_index(drop=True).copy()
     if df.empty:
@@ -159,9 +221,18 @@ def backtest_scored_stock(
         if signal_start_date is not None
         else None
     )
+    signal_end = (
+        pd.Timestamp(signal_end_date).normalize()
+        if signal_end_date is not None
+        else None
+    )
 
     trades: list[dict] = []
-    i = max(60, SETTINGS.min_bars - 1)
+    i = (
+        max(60, SETTINGS.min_bars - 1)
+        if min_signal_index is None
+        else max(0, int(min_signal_index))
+    )
 
     while i < len(df) - 1:
         signal_row = df.iloc[i]
@@ -170,10 +241,22 @@ def backtest_scored_stock(
         if signal_start is not None and signal_date < signal_start:
             i += 1
             continue
+        if signal_end is not None and signal_date > signal_end:
+            break
 
-        if int(signal_row["score"]) < score_threshold:
-            i += 1
-            continue
+        if signal_flag_column is not None:
+            flag_value = signal_row.get(signal_flag_column, False)
+            if pd.isna(flag_value) or not bool(flag_value):
+                i += 1
+                continue
+        else:
+            signal_score = pd.to_numeric(
+                pd.Series([signal_row.get(score_column)]),
+                errors="coerce",
+            ).iloc[0]
+            if pd.isna(signal_score) or float(signal_score) < float(score_threshold):
+                i += 1
+                continue
 
         if SETTINGS.exclude_st and historical_is_st(signal_row, name):
             i += 1
@@ -191,19 +274,26 @@ def backtest_scored_stock(
             i += 1
             continue
 
-        entry_row = df.iloc[entry_idx]
+        entry_row = _execution_row(df.iloc[entry_idx])
         entry_price = float(entry_row["open"])
         if entry_price <= 0:
             i += 1
             continue
 
-        atr = (
+        signal_close = float(signal_row["close"]) if pd.notna(signal_row["close"]) else 0.0
+        signal_atr = (
             float(signal_row["atr14"])
             if pd.notna(signal_row["atr14"])
-            else entry_price * 0.03
+            else signal_close * 0.03
         )
-        stop_price = entry_price - stop_atr_multiple * atr
-        target_price = entry_price + target_atr_multiple * atr
+        atr_ratio = (
+            max(0.001, signal_atr / signal_close)
+            if signal_close > 0
+            else 0.03
+        )
+        execution_atr = entry_price * atr_ratio
+        stop_price = entry_price - stop_atr_multiple * execution_atr
+        target_price = entry_price + target_atr_multiple * execution_atr
 
         decision_end_idx = min(entry_idx + max_hold_days - 1, len(df) - 1)
         exit_idx: int | None = None
@@ -212,24 +302,25 @@ def backtest_scored_stock(
 
         for j in range(entry_idx, decision_end_idx + 1):
             day = df.iloc[j]
+            exec_day = _execution_row(day)
             age = trading_age(df, j, listing_ts)
             rule, _, down_limit = row_limit_prices(
                 code,
-                day,
+                exec_day,
                 fallback_name=name,
                 trading_days_since_listing=age,
             )
 
             if not sellable_bar(
-                day,
+                exec_day,
                 down_limit_price=down_limit,
                 down_limit_pct=rule.down_limit_pct,
             ):
                 continue
 
-            open_price = float(day["open"])
-            low_price = float(day["low"])
-            high_price = float(day["high"])
+            open_price = float(exec_day["open"])
+            low_price = float(exec_day["low"])
+            high_price = float(exec_day["high"])
 
             # 同一天同时触发止损/止盈时采用保守假设：先按止损处理。
             if low_price <= stop_price:
@@ -260,7 +351,7 @@ def backtest_scored_stock(
                 )
                 if weak_trend and weak_macd:
                     exit_idx = j
-                    exit_price = float(day["close"])
+                    exit_price = float(exec_day["close"])
                     exit_reason = "趋势转弱"
                     break
 
@@ -268,21 +359,22 @@ def backtest_scored_stock(
         if exit_idx is None:
             for j in range(decision_end_idx, len(df)):
                 day = df.iloc[j]
+                exec_day = _execution_row(day)
                 age = trading_age(df, j, listing_ts)
                 rule, _, down_limit = row_limit_prices(
                     code,
-                    day,
+                    exec_day,
                     fallback_name=name,
                     trading_days_since_listing=age,
                 )
                 if not sellable_bar(
-                    day,
+                    exec_day,
                     down_limit_price=down_limit,
                     down_limit_pct=rule.down_limit_pct,
                 ):
                     continue
                 exit_idx = j
-                exit_price = float(day["close"])
+                exit_price = float(exec_day["close"])
                 exit_reason = (
                     "观察窗口结束"
                     if j == decision_end_idx
@@ -295,23 +387,35 @@ def backtest_scored_stock(
             break
 
         gross_return = (exit_price / entry_price - 1) * 100
-        net_return = gross_return - ROUND_TRIP_COST_PCT
+        buy_date = pd.to_datetime(df.iloc[entry_idx]["date"]).normalize()
+        sell_date = pd.to_datetime(df.iloc[exit_idx]["date"]).normalize()
+        estimated_cost_pct = _cost_model().estimated_round_trip_pct(
+            buy_date,
+            sell_date,
+        )
+        net_return = gross_return - estimated_cost_pct
         delayed_exit_days = max(0, exit_idx - decision_end_idx)
+        displayed_score = signal_row.get(score_column, pd.NA)
 
         trades.append(
             {
                 "代码": code,
                 "名称": name,
+                "模型": model_name,
                 "信号日": signal_date.strftime("%Y-%m-%d"),
-                "买入日": pd.to_datetime(df.iloc[entry_idx]["date"]).strftime("%Y-%m-%d"),
-                "卖出日": pd.to_datetime(df.iloc[exit_idx]["date"]).strftime("%Y-%m-%d"),
-                "信号评分": int(signal_row["score"]),
+                "买入日": buy_date.strftime("%Y-%m-%d"),
+                "卖出日": sell_date.strftime("%Y-%m-%d"),
+                "信号评分": round(float(displayed_score), 3)
+                if pd.notna(displayed_score)
+                else pd.NA,
                 "买入价": round(entry_price, 3),
                 "卖出价": round(exit_price, 3),
                 "持有交易日": exit_idx - entry_idx + 1,
                 "延迟卖出交易日": delayed_exit_days,
                 "买入规则": getattr(entry_rule, "rule_id", ""),
                 "退出原因": exit_reason,
+                "毛收益%": round(gross_return, 3),
+                "估算交易成本%": round(estimated_cost_pct, 4),
                 "净收益%": round(net_return, 3),
             }
         )
@@ -331,9 +435,12 @@ def backtest_stock(
     *,
     listing_date: str | pd.Timestamp | None = None,
     signal_start_date: str | pd.Timestamp | None = None,
+    signal_end_date: str | pd.Timestamp | None = None,
+    execution_bars: pd.DataFrame | None = None,
 ) -> list[dict]:
     profile = load_strategy_profile()
     scored = score_history(hist)
+    scored = attach_execution_bars(scored, execution_bars)
     return backtest_scored_stock(
         code=code,
         name=name,
@@ -358,6 +465,8 @@ def backtest_stock(
         ),
         listing_date=listing_date,
         signal_start_date=signal_start_date,
+        signal_end_date=signal_end_date,
+        model_name="V1",
     )
 
 
@@ -442,6 +551,14 @@ def run_backtest(
                 refresh=refresh,
                 prefer_point_in_time=True,
             )
+            execution_bars = provider.history_range(
+                code,
+                stock_start.strftime("%Y-%m-%d"),
+                stock_end.strftime("%Y-%m-%d"),
+                adjust="none",
+                refresh=False,
+                prefer_point_in_time=True,
+            )
             if len(hist) >= SETTINGS.min_bars:
                 all_trades.extend(
                     backtest_stock(
@@ -454,6 +571,7 @@ def run_backtest(
                         max_hold_days=max_hold_days,
                         listing_date=listing_date,
                         signal_start_date=signal_start,
+                        execution_bars=execution_bars,
                     )
                 )
         except Exception as exc:
