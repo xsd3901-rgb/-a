@@ -544,20 +544,11 @@ def run_backtest(
             continue
 
         try:
-            hist = provider.history_range(
+            hist, execution_bars = provider.research_history_range(
                 code,
                 stock_start.strftime("%Y-%m-%d"),
                 stock_end.strftime("%Y-%m-%d"),
                 refresh=refresh,
-                prefer_point_in_time=True,
-            )
-            execution_bars = provider.history_range(
-                code,
-                stock_start.strftime("%Y-%m-%d"),
-                stock_end.strftime("%Y-%m-%d"),
-                adjust="none",
-                refresh=False,
-                prefer_point_in_time=True,
             )
             if len(hist) >= SETTINGS.min_bars:
                 all_trades.extend(
