@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from aquant.features.technical import TechnicalFeatureBuilder
+from aquant.features.pipeline import FeaturePipeline
 from config import SETTINGS
 from profile import load_strategy_profile
 
@@ -19,10 +19,14 @@ class Signal:
     stop: float
     target: float
     atr_pct: float
+    rs20: float | None = None
 
 
-def score_history(df: pd.DataFrame) -> pd.DataFrame:
-    out = TechnicalFeatureBuilder().transform(df)
+def score_history(
+    df: pd.DataFrame,
+    benchmark_bars: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    out = FeaturePipeline().transform(df, benchmark_bars=benchmark_bars)
     score = pd.Series(0.0, index=out.index)
 
     # 趋势
@@ -52,8 +56,11 @@ def score_history(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def evaluate_latest(df: pd.DataFrame) -> Signal:
-    scored = score_history(df)
+def evaluate_latest(
+    df: pd.DataFrame,
+    benchmark_bars: pd.DataFrame | None = None,
+) -> Signal:
+    scored = score_history(df, benchmark_bars=benchmark_bars)
     if len(scored) < SETTINGS.min_bars:
         raise ValueError(f"有效K线不足 {SETTINGS.min_bars} 根")
 
@@ -88,6 +95,14 @@ def evaluate_latest(df: pd.DataFrame) -> Signal:
     else:
         risk = "低"
 
+    rs20 = None
+    if "rs_20d" in row.index and pd.notna(row["rs_20d"]):
+        rs20 = round(float(row["rs_20d"]), 2)
+        if rs20 > 0:
+            reasons.append("20日跑赢沪深300")
+        elif rs20 < -5:
+            reasons.append("20日弱于沪深300")
+
     return Signal(
         score=score,
         reasons="、".join(reasons) or "信号不足",
@@ -96,4 +111,5 @@ def evaluate_latest(df: pd.DataFrame) -> Signal:
         stop=round(stop, 3),
         target=round(target, 3),
         atr_pct=round(atr_pct, 2),
+        rs20=rs20,
     )
