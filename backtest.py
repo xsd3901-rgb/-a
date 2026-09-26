@@ -6,29 +6,38 @@ import pandas as pd
 
 from config import SETTINGS, ensure_directories
 from data import FreeAStockData
+from profile import load_strategy_profile
 from strategy import score_history
 
 ROUND_TRIP_COST_PCT = 0.20  # 粗略计入手续费/滑点，后续可再细化
 
 
-def backtest_stock(code: str, name: str, hist: pd.DataFrame) -> list[dict]:
-    df = score_history(hist).reset_index(drop=True)
+def backtest_scored_stock(
+    code: str,
+    name: str,
+    scored: pd.DataFrame,
+    score_threshold: int,
+    stop_atr_multiple: float,
+    target_atr_multiple: float,
+    max_hold_days: int,
+) -> list[dict]:
+    df = scored.reset_index(drop=True)
     trades: list[dict] = []
     i = max(60, SETTINGS.min_bars - 1)
 
     while i < len(df) - 2:
         signal_row = df.iloc[i]
-        if not bool(signal_row["signal"]):
+        if int(signal_row["score"]) < score_threshold:
             i += 1
             continue
 
         entry_idx = i + 1
         entry_price = float(df.iloc[entry_idx]["open"])
         atr = float(signal_row["atr14"]) if pd.notna(signal_row["atr14"]) else entry_price * 0.03
-        stop_price = entry_price - SETTINGS.stop_atr_multiple * atr
-        target_price = entry_price + SETTINGS.target_atr_multiple * atr
+        stop_price = entry_price - stop_atr_multiple * atr
+        target_price = entry_price + target_atr_multiple * atr
 
-        last_idx = min(entry_idx + SETTINGS.reference_hold_max_days - 1, len(df) - 1)
+        last_idx = min(entry_idx + max_hold_days - 1, len(df) - 1)
         exit_idx = last_idx
         exit_price = float(df.iloc[last_idx]["close"])
         exit_reason = "观察窗口结束"
@@ -52,7 +61,11 @@ def backtest_stock(code: str, name: str, hist: pd.DataFrame) -> list[dict]:
             if held >= SETTINGS.trend_exit_min_days:
                 ma10 = day["ma10"]
                 weak_trend = pd.notna(ma10) and float(day["close"]) < float(ma10)
-                weak_macd = pd.notna(day["macd_dif"]) and pd.notna(day["macd_dea"]) and day["macd_dif"] < day["macd_dea"]
+                weak_macd = (
+                    pd.notna(day["macd_dif"])
+                    and pd.notna(day["macd_dea"])
+                    and day["macd_dif"] < day["macd_dea"]
+                )
                 if weak_trend and weak_macd:
                     exit_idx = j
                     exit_price = float(day["close"])
@@ -81,7 +94,37 @@ def backtest_stock(code: str, name: str, hist: pd.DataFrame) -> list[dict]:
     return trades
 
 
-def run_backtest(limit: int | None = None, refresh: bool = False) -> pd.DataFrame:
+def backtest_stock(
+    code: str,
+    name: str,
+    hist: pd.DataFrame,
+    score_threshold: int | None = None,
+    stop_atr_multiple: float | None = None,
+    target_atr_multiple: float | None = None,
+    max_hold_days: int | None = None,
+) -> list[dict]:
+    profile = load_strategy_profile()
+    scored = score_history(hist)
+    return backtest_scored_stock(
+        code=code,
+        name=name,
+        scored=scored,
+        score_threshold=int(score_threshold if score_threshold is not None else profile["score_threshold"]),
+        stop_atr_multiple=float(stop_atr_multiple if stop_atr_multiple is not None else profile["stop_atr_multiple"]),
+        target_atr_multiple=float(target_atr_multiple if target_atr_multiple is not None else profile["target_atr_multiple"]),
+        max_hold_days=int(max_hold_days if max_hold_days is not None else profile["max_hold_days"]),
+    )
+
+
+def run_backtest(
+    limit: int | None = None,
+    refresh: bool = False,
+    score_threshold: int | None = None,
+    stop_atr_multiple: float | None = None,
+    target_atr_multiple: float | None = None,
+    max_hold_days: int | None = None,
+    persist: bool = True,
+) -> pd.DataFrame:
     ensure_directories()
     provider = FreeAStockData()
     stocks = provider.stock_list()
@@ -97,7 +140,17 @@ def run_backtest(limit: int | None = None, refresh: bool = False) -> pd.DataFram
         try:
             hist = provider.history(code, refresh=refresh)
             if len(hist) >= SETTINGS.min_bars:
-                all_trades.extend(backtest_stock(code, name, hist))
+                all_trades.extend(
+                    backtest_stock(
+                        code,
+                        name,
+                        hist,
+                        score_threshold=score_threshold,
+                        stop_atr_multiple=stop_atr_multiple,
+                        target_atr_multiple=target_atr_multiple,
+                        max_hold_days=max_hold_days,
+                    )
+                )
         except Exception as exc:
             errors.append({"代码": code, "名称": name, "错误": str(exc)[:300]})
         finally:
@@ -106,7 +159,8 @@ def run_backtest(limit: int | None = None, refresh: bool = False) -> pd.DataFram
                 gc.collect()
 
     trades = pd.DataFrame(all_trades)
-    trades.to_csv(SETTINGS.report_dir / "backtest_trades.csv", index=False, encoding="utf-8-sig")
-    if errors:
-        pd.DataFrame(errors).to_csv(SETTINGS.report_dir / "backtest_errors.csv", index=False, encoding="utf-8-sig")
+    if persist:
+        trades.to_csv(SETTINGS.report_dir / "backtest_trades.csv", index=False, encoding="utf-8-sig")
+        if errors:
+            pd.DataFrame(errors).to_csv(SETTINGS.report_dir / "backtest_errors.csv", index=False, encoding="utf-8-sig")
     return trades
