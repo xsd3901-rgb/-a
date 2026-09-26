@@ -124,10 +124,13 @@ class MarketDataService:
                 "high",
                 "low",
                 "close",
+                "preclose",
                 "volume",
                 "amount",
                 "turnover",
+                "pct_change",
                 "trade_status",
+                "is_st",
             ]
             if c in out.columns
         ]
