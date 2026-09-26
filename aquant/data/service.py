@@ -25,12 +25,30 @@ class MarketDataService:
         self.reference = ReferenceDataService(store_root)
         self.adjust = SETTINGS.adjust if SETTINGS.adjust in {"none", "qfq", "hfq"} else "qfq"
         self._attempted_today: set[tuple[str, str]] = set()
+        self._cached_market_date: pd.Timestamp | None = None
 
     def stock_list(self) -> pd.DataFrame:
-        df = self.reference.stock_list(
-            fetcher=self.primary.fetch_stock_list,
-            max_age_hours=float(SETTINGS.cache_hours),
-        )
+        errors: list[str] = []
+        try:
+            df = self.reference.stock_list(
+                fetcher=self.primary.fetch_stock_list,
+                max_age_hours=float(SETTINGS.cache_hours),
+            )
+        except Exception as exc:
+            errors.append(f"eastmoney/akshare: {exc}")
+            try:
+                df = self.reference.stock_list(
+                    fetcher=self.backup.fetch_stock_list,
+                    max_age_hours=float(SETTINGS.cache_hours),
+                    force=True,
+                )
+            except Exception as exc2:
+                errors.append(f"baostock: {exc2}")
+                local = self.reference.store.read_security_master()
+                if local.empty:
+                    raise RuntimeError("股票基础库主源、备用源和本地快照全部不可用: " + " | ".join(errors)) from exc2
+                df = local
+
         if df is None or df.empty:
             raise RuntimeError("全 A 股票基础库为空")
 
@@ -52,12 +70,15 @@ class MarketDataService:
         )
 
     def latest_trade_date(self) -> pd.Timestamp:
+        if self._cached_market_date is not None:
+            return self._cached_market_date
         today = pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None).normalize()
         latest = self.reference.latest_trade_date(
             on_or_before=today,
             max_age_hours=float(SETTINGS.cache_hours),
         )
-        return latest if latest is not None else today
+        self._cached_market_date = latest if latest is not None else today
+        return self._cached_market_date
 
     @staticmethod
     def _legacy_frame(df: pd.DataFrame) -> pd.DataFrame:
