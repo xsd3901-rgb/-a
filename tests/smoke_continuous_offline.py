@@ -39,6 +39,16 @@ def main() -> None:
         check_names=False,
     )
 
+    # 停牌日不参与技术指标K线窗口；执行层会单独保留该日期。
+    suspended = raw.copy()
+    suspended.loc[2, "trade_status"] = 0
+    suspended.loc[2, ["open", "high", "low", "close"]] = pd.NA
+    suspended_continuous = build_point_in_time_continuous(suspended)
+    assert len(suspended_continuous) == len(raw) - 1
+    assert pd.Timestamp(raw.loc[2, "date"]) not in set(
+        pd.to_datetime(suspended_continuous["date"])
+    )
+
     assert set(continuous["signal_price_mode"]) == {"point_in_time_continuous"}
     print("OFFLINE_CONTINUOUS_PRICE_OK")
 
