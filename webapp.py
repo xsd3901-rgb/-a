@@ -13,6 +13,7 @@ from flask import Flask, jsonify, render_template_string, request
 from aquant.models.registry import model_status
 from aquant.research.feature_selection import build_v2_candidate
 from aquant.research.data_audit import run_data_audit
+from aquant.research.data_repair import repair_failed_market_data
 from aquant.research.feature_validation import run_feature_validation
 from aquant.research.model_compare import run_model_comparison
 from aquant.research.local_prepare import run_local_prepare
@@ -93,6 +94,19 @@ def _execute_task(job_id: str, action: str, payload: dict) -> None:
             result = {
                 "summary": summary,
                 "rows": _records(frame, 50),
+            }
+        elif action == "repair_data":
+            frame, summary = repair_failed_market_data(
+                max_symbols=limit,
+                progress=lambda message: _set_job(
+                    job_id,
+                    status="running",
+                    message=message,
+                ),
+            )
+            result = {
+                "summary": summary,
+                "rows": _records(frame, 100),
             }
         elif action == "audit_data":
             frame, summary = run_data_audit(limit=limit)
@@ -343,6 +357,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1327;padding:12px;b
       <button class="primary" onclick="runTask('bootstrap')">建立/更新本地数据库</button>
       <button onclick="runTask('readiness')">就绪检查</button>
       <button onclick="runTask('audit_data')">本地数据审计</button>
+      <button onclick="runTask('repair_data')">修复失败数据</button>
       <button class="primary" onclick="runTask('scan')">全市场扫描</button>
       <button onclick="runTask('stock_detail')">查看单股详情</button>
       <button onclick="runTask('backtest')">V1真实成交回测</button>
@@ -488,6 +503,7 @@ def api_status():
 @app.post("/api/run/<action>")
 def api_run(action: str):
     allowed = {
+        "repair_data",
         "prepare_local",
         "readiness",
         "audit_data",
