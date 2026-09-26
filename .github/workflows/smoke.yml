@@ -6,20 +6,6 @@ concurrency:
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "aquant/**"
-      - "tests/**"
-      - "main.py"
-      - "config.py"
-      - "backtest.py"
-      - "optimizer.py"
-      - "scanner.py"
-      - "strategy.py"
-      - "eastmoney_formula.py"
-      - "webapp.py"
-      - ".github/workflows/smoke.yml"
 
 jobs:
   smoke:
