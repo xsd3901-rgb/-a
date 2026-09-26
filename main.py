@@ -10,6 +10,7 @@ from aquant.research.feature_validation import run_feature_validation
 from aquant.research.feature_selection import build_v2_candidate
 from aquant.research.walk_forward import run_walk_forward
 from aquant.research.model_compare import run_model_comparison
+from aquant.research.system_validation import run_system_validation
 from aquant.research.portfolio import simulate_portfolio
 from optimizer import optimize_parameters
 from profile import load_strategy_profile
@@ -44,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     compare = sub.add_parser("compare-models", help="同一滚动样本外区间比较 V1 与 V2 真实成交")
     compare.add_argument("--horizon", type=int, choices=[5, 10, 20], default=10, help="V2预测窗口，默认10日")
+
+    validate = sub.add_parser("validate-system", help="一键运行特征、Walk-Forward、模型对比和正式回测验收")
+    validate.add_argument("--limit", type=int, default=200, help="特征与正式回测股票数，默认200")
+    validate.add_argument("--horizon", type=int, choices=[5, 10, 20], default=10, help="V2预测窗口，默认10日")
+    validate.add_argument("--refresh", action="store_true", help="刷新研究数据")
 
     opt = sub.add_parser("optimize", help="训练/验证分段的受控参数优化")
     opt.add_argument("--limit", type=int, default=100, help="优化样本股票数，默认100")
@@ -161,6 +167,21 @@ def main() -> None:
         print("\n模型对比结论：")
         for key, value in summary.items():
             print(f"{key}: {value}")
+        return
+
+    if args.command == "validate-system":
+        comparison, summary = run_system_validation(
+            feature_limit=args.limit if args.limit > 0 else None,
+            backtest_limit=args.limit if args.limit > 0 else None,
+            horizon=args.horizon,
+            refresh=args.refresh,
+        )
+        print("\n系统验收汇总：")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        if not comparison.empty:
+            print("\nV1/V2 对比：")
+            print(comparison.to_string(index=False))
         return
 
     if args.command == "optimize":
