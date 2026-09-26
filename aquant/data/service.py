@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 import pandas as pd
 
 from aquant.data.continuous import build_point_in_time_continuous
@@ -13,6 +15,10 @@ from aquant.data.safe_fetch import fetch_stock_list_with_timeout
 from aquant.data.storage import MarketStore
 from aquant.data.universe_service import HistoricalUniverseService
 from config import SETTINGS
+
+
+_BAOSTOCK_GATE = threading.BoundedSemaphore(1)
+_EASTMONEY_GATE = threading.BoundedSemaphore(2)
 
 
 class MarketDataService:
@@ -145,6 +151,10 @@ class MarketDataService:
                 "pct_change",
                 "trade_status",
                 "is_st",
+                "provider",
+                "adapter",
+                "quality_status",
+                "fetched_at",
             ]
             if c in out.columns
         ]
@@ -188,7 +198,18 @@ class MarketDataService:
         )
         for provider in providers:
             try:
-                frame = provider.fetch_daily(symbol, start_date, end_date, adjust=adjust)
+                gate = (
+                    _BAOSTOCK_GATE
+                    if provider.info.provider == "baostock"
+                    else _EASTMONEY_GATE
+                )
+                with gate:
+                    frame = provider.fetch_daily(
+                        symbol,
+                        start_date,
+                        end_date,
+                        adjust=adjust,
+                    )
                 if frame is None or frame.empty:
                     errors.append(f"{provider.info.provider}: empty")
                     continue
@@ -236,7 +257,13 @@ class MarketDataService:
         refresh: bool = False,
         prefer_point_in_time: bool = False,
     ) -> pd.DataFrame:
-        """读取/补齐指定历史区间，供历史回测和退市股票研究使用。"""
+        """读取/增量补齐指定历史区间。
+
+        非 refresh 模式只下载本地数据之前/之后真正缺失的首尾区间，
+        不再因为最后缺一天就重复抓取整个 3~4 年窗口。
+        内部交易日缺口由 data-audit 单独识别，避免每次普通读取都做
+        昂贵的全日历比对。
+        """
         symbol = str(code).strip().zfill(6)[-6:]
         mode = adjust or self.adjust
         if mode not in {"none", "qfq", "hfq"}:
@@ -247,50 +274,65 @@ class MarketDataService:
         if start > end:
             raise ValueError("start_date 不能晚于 end_date")
 
+        start_s = start.strftime("%Y-%m-%d")
+        end_s = end.strftime("%Y-%m-%d")
         local = self.store.read_daily(
             symbol,
             mode,
-            start_date=start.strftime("%Y-%m-%d"),
-            end_date=end.strftime("%Y-%m-%d"),
+            start_date=start_s,
+            end_date=end_s,
         )
 
-        need_fetch = refresh or local.empty
-        if not local.empty:
-            local_dates = pd.to_datetime(local[FIELDS.trade_date], errors="coerce")
-            if local_dates.min() > start or local_dates.max() < end:
-                need_fetch = True
+        segments: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+        if refresh or local.empty:
+            segments.append((start, end))
+        else:
+            local_dates = pd.to_datetime(
+                local[FIELDS.trade_date], errors="coerce"
+            ).dropna()
+            if local_dates.empty:
+                segments.append((start, end))
+            else:
+                local_min = pd.Timestamp(local_dates.min()).normalize()
+                local_max = pd.Timestamp(local_dates.max()).normalize()
+                if local_min > start:
+                    head_end = local_min - pd.Timedelta(days=1)
+                    if start <= head_end:
+                        segments.append((start, head_end))
+                if local_max < end:
+                    tail_start = local_max + pd.Timedelta(days=1)
+                    if tail_start <= end:
+                        segments.append((tail_start, end))
 
-        if need_fetch:
+        fetch_errors: list[Exception] = []
+        for seg_start, seg_end in segments:
             try:
                 self._fetch_with_fallback(
                     symbol,
-                    start.strftime("%Y-%m-%d"),
-                    end.strftime("%Y-%m-%d"),
+                    seg_start.strftime("%Y-%m-%d"),
+                    seg_end.strftime("%Y-%m-%d"),
                     mode,
                     prefer_point_in_time=prefer_point_in_time,
                 )
-                if mode != "none":
-                    try:
-                        self._fetch_with_fallback(
-                            symbol,
-                            start.strftime("%Y-%m-%d"),
-                            end.strftime("%Y-%m-%d"),
-                            "none",
-                            prefer_point_in_time=prefer_point_in_time,
-                        )
-                    except Exception:
-                        pass
+            except Exception as exc:
+                fetch_errors.append(exc)
+
+        if mode != "none" and segments:
+            # 只做未复权尾部归档，不重复抓取整个历史窗口。
+            try:
+                self._archive_unadjusted(symbol, start_s, end_s)
             except Exception:
-                if local.empty:
-                    raise
+                pass
 
         result = self.store.read_daily(
             symbol,
             mode,
-            start_date=start.strftime("%Y-%m-%d"),
-            end_date=end.strftime("%Y-%m-%d"),
+            start_date=start_s,
+            end_date=end_s,
         )
         if result.empty:
+            if local.empty and fetch_errors:
+                raise fetch_errors[-1]
             result = local
         return self._legacy_frame(result)
 
