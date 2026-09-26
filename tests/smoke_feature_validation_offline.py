@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
 import numpy as np
 import pandas as pd
 
-from aquant.research.feature_validation import evaluate_feature_samples
+from aquant.research.feature_validation import (
+    _evaluate_feature_store,
+    evaluate_feature_samples,
+)
 
 
 def main() -> None:
@@ -36,6 +42,25 @@ def main() -> None:
     assert len(boolean) == 3
     assert set(boolean["稳定性"]) == {"方向一致"}
     assert (pd.to_numeric(boolean["验证高低组收益差%"], errors="coerce") > 0).all()
+
+    with TemporaryDirectory() as tmp:
+        work_dir = Path(tmp)
+        half = len(frame) // 2
+        frame.iloc[:half].to_parquet(work_dir / "chunk_00001.parquet", index=False)
+        frame.iloc[half:].to_parquet(work_dir / "chunk_00002.parquet", index=False)
+        stored, stored_split, sample_count = _evaluate_feature_store(
+            work_dir,
+            train_ratio=0.70,
+        )
+        assert stored_split is not None
+        assert sample_count == len(frame)
+        assert not stored.empty
+        assert set(
+            stored.loc[
+                stored["特征"] == "close_ma20_gap_pct",
+                "稳定性",
+            ]
+        ) == {"方向一致"}
 
     print("OFFLINE_FEATURE_VALIDATION_OK")
 
