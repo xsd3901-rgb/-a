@@ -83,17 +83,60 @@ def main() -> None:
     assert trade["模型"] == "V1_TEST"
 
     trade_frame = pd.DataFrame(trades)
+    raw_prices = pd.DataFrame(
+        {
+            "date": frame["date"],
+            "close": frame["exec_close"],
+        }
+    )
     executed, equity, metrics = simulate_portfolio(
         trade_frame,
         initial_capital=100_000,
         max_positions=5,
         max_position_pct=0.20,
+        price_frames={"600000": raw_prices},
     )
     assert len(executed) == 1
     assert not equity.empty
     assert executed.iloc[0]["实际股数"] % 100 == 0
     assert metrics["实际成交交易"] == 1
     assert metrics["期末资金"] > 0
+    assert "盯市权益" in equity.columns
+    assert metrics["盯市覆盖率%"] > 0
+    assert metrics["最大盯市回撤%"] >= 0
+
+    # 单独构造一个持仓中途明显回撤的样本，确认回撤不是只看买卖日。
+    mtm_trade = pd.DataFrame(
+        [
+            {
+                "代码": "600001",
+                "名称": "盯市样本",
+                "信号评分": 80.0,
+                "买入日": "2025-01-02",
+                "卖出日": "2025-01-07",
+                "买入价": 100.0,
+                "卖出价": 110.0,
+            }
+        ]
+    )
+    mtm_prices = pd.DataFrame(
+        {
+            "date": pd.to_datetime(
+                ["2025-01-02", "2025-01-03", "2025-01-06", "2025-01-07"]
+            ),
+            "close": [100.0, 78.0, 92.0, 110.0],
+        }
+    )
+    _, mtm_equity, mtm_metrics = simulate_portfolio(
+        mtm_trade,
+        initial_capital=100_000,
+        max_positions=5,
+        max_position_pct=0.20,
+        price_frames={"600001": mtm_prices},
+    )
+    assert len(mtm_equity) >= 4
+    assert mtm_metrics["最大盯市回撤%"] > 2.0
+    assert mtm_metrics["盯市覆盖率%"] == 100.0
 
     print("OFFLINE_COST_PORTFOLIO_OK")
 
