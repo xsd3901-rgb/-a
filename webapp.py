@@ -31,7 +31,7 @@ th,td{border-bottom:1px solid #e5e7eb;padding:8px;text-align:left} th{background
 <body>
 <div class="card">
 <h2>A股短期波段量化选股器</h2>
-<p class="muted">免费数据源 · 全市场扫描 · 低内存 · 回测验证 · 受控参数优化。持股周期由信号动态决定，不把固定天数作为选股硬条件。</p>
+<p class="muted">免费数据源 · 沪深A股扫描 · 内存自适应 · 市场环境识别 · 回测验证 · 受控参数优化。持股周期由信号动态决定，不把固定天数作为选股硬条件。</p>
 <label>处理数量（空=全市场）： <input id="limit" type="number" min="1" placeholder="50"></label><br><br>
 <button onclick="runScan()">开始扫描</button>
 <button onclick="runBacktest()">运行回测</button>
