@@ -505,7 +505,7 @@ def fetch_adjust_factors_with_timeout(
 def _security_lifecycle_worker(out_queue) -> None:
     try:
         import baostock as bs
-        from aquant.data.providers.base import normalize_symbol
+        from aquant.data.providers.base import is_shsz_a_share, normalize_symbol
 
         login = bs.login()
         if getattr(login, "error_code", "-1") != "0":
@@ -584,6 +584,7 @@ def _security_lifecycle_worker(out_queue) -> None:
 
             frame["board"] = frame["code"].map(_board)
             frame["market"] = frame["code"].map(_market)
+            frame = frame[frame["code"].map(is_shsz_a_share)].copy()
             frame = (
                 frame.drop_duplicates("code", keep="last")
                 .sort_values("code")
