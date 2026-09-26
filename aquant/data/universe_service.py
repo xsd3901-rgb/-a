@@ -4,6 +4,8 @@ import time
 
 import pandas as pd
 
+from config import SETTINGS
+
 from aquant.data.safe_fetch import fetch_security_lifecycle_with_timeout
 from aquant.data.universe_store import HistoricalUniverseStore
 
@@ -11,8 +13,9 @@ from aquant.data.universe_store import HistoricalUniverseStore
 class HistoricalUniverseService:
     """历史股票池服务，避免回测只使用当前仍上市股票。"""
 
-    def __init__(self, store_root: str = "data_store") -> None:
-        self.store = HistoricalUniverseStore(store_root)
+    def __init__(self, store_root: str | None = None) -> None:
+        root = str(SETTINGS.data_store_dir) if store_root is None else store_root
+        self.store = HistoricalUniverseStore(root)
 
     @staticmethod
     def _fresh(path, max_age_hours: float) -> bool:
