@@ -529,17 +529,33 @@ def _security_lifecycle_worker(out_queue) -> None:
             if "type" in raw.columns:
                 raw = raw[raw["type"].astype(str).eq("1")].copy()
 
+            listing_source = (
+                raw["ipoDate"]
+                if "ipoDate" in raw.columns
+                else pd.Series(pd.NaT, index=raw.index)
+            )
+            delisting_source = (
+                raw["outDate"]
+                if "outDate" in raw.columns
+                else pd.Series(pd.NaT, index=raw.index)
+            )
+            status_source = (
+                raw["status"]
+                if "status" in raw.columns
+                else pd.Series("", index=raw.index)
+            )
+
             frame = pd.DataFrame(
                 {
                     "code": raw["code"].map(normalize_symbol),
                     "name": raw["code_name"].astype(str).str.strip(),
                     "listing_date": pd.to_datetime(
-                        raw.get("ipoDate"), errors="coerce"
+                        listing_source, errors="coerce"
                     ).dt.normalize(),
                     "delisting_date": pd.to_datetime(
-                        raw.get("outDate"), errors="coerce"
+                        delisting_source, errors="coerce"
                     ).dt.normalize(),
-                    "status": raw.get("status", "").astype(str),
+                    "status": status_source.astype(str),
                     "provider": "baostock",
                 }
             )
