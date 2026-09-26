@@ -30,7 +30,7 @@ class Settings:
     stop_atr_multiple: float = 1.8
     target_atr_multiple: float = 3.0
 
-    # 低内存
+    # 兼容后备批次；主流程实际批次由 aquant.runtime.resources 按电脑内存动态决定
     flush_every: int = 50
 
 
