@@ -14,9 +14,11 @@ class MarketDataContract:
     high: str = "high"
     low: str = "low"
     close: str = "close"
+    preclose: str = "preclose"
     volume: str = "volume"          # 统一单位：股
     amount: str = "amount"          # 统一单位：人民币元
     turnover: str = "turnover"      # 统一单位：%
+    is_st: str = "is_st"              # 点时 ST 标记，数据源提供时使用
     adj_factor: str = "adj_factor"
 
     # 来源元数据：真实数据提供方和 Python 适配器分开记录。
