@@ -6,7 +6,7 @@ from pathlib import Path
 
 from config import SETTINGS
 
-PROFILE_PATH = Path("strategy_profile.json")
+PROFILE_PATH = SETTINGS.project_root / "strategy_profile.json"
 
 
 def _defaults() -> dict:
