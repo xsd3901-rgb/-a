@@ -278,7 +278,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1327;padding:12px;b
   <div class="header">
     <div>
       <h1>A-Quant 沪深A股量化终端</h1>
-      <div class="sub">免费数据源 · 历史股票池 · 点时ST/停牌 · 未复权真实成交层 · 特征验证 · Walk-Forward · V1/V2 对照 · 有限资金组合约束</div>
+      <div class="sub">免费数据源 · 历史股票池 · 点时ST/停牌 · 未复权真实成交层 · 特征验证 · Walk-Forward · V1/V2 对照 · 有限资金组合 · 逐日盯市回撤</div>
     </div>
     <span class="pill">Local Research Terminal</span>
   </div>
