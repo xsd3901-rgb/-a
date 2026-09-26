@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from typing import Callable
 
 import pandas as pd
 
@@ -18,6 +19,7 @@ def run_local_prepare(
     validation_limit: int | None = 200,
     horizon: int = 10,
     refresh: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """首次本地部署后的正式准备流程。
 
@@ -32,6 +34,10 @@ def run_local_prepare(
     ensure_directories()
     rows: list[dict] = []
 
+    def announce(message: str) -> None:
+        if progress is not None:
+            progress(message)
+
     def record(step: str, status: str, detail: str = "") -> None:
         rows.append(
             {
@@ -43,6 +49,7 @@ def run_local_prepare(
         )
 
     try:
+        announce("1/4 正在建立/增量补齐本地沪深数据库")
         _, bootstrap_summary = bootstrap_market(
             limit=bootstrap_limit,
             refresh=refresh,
@@ -68,6 +75,7 @@ def run_local_prepare(
         })
         raise
 
+    announce("2/4 正在审计本地行情完整性")
     audit_details, audit_summary = run_data_audit(limit=bootstrap_limit)
     audit_state = str(audit_summary.get("状态", "未知"))
     audit_ok = audit_state in {"通过", "可用但有警告"}
@@ -90,6 +98,7 @@ def run_local_prepare(
         _persist(status, summary)
         return status, summary
 
+    announce("3/4 正在运行特征、Walk-Forward、V1/V2和正式回测验收")
     comparison, validation_summary = run_system_validation(
         feature_limit=validation_limit,
         backtest_limit=validation_limit,
@@ -104,6 +113,7 @@ def run_local_prepare(
         validation_state,
     )
 
+    announce("4/4 正在执行最终就绪检查")
     readiness_frame, readiness_summary = release_readiness(
         audit_limit=bootstrap_limit,
     )
