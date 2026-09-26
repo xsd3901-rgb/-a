@@ -60,11 +60,12 @@ class ReferenceDataService:
         errors: list[str] = []
         for source in ("akshare", "baostock"):
             try:
+                source_timeout = 20.0 if source == "akshare" else 35.0
                 frame = fetch_trade_calendar_with_timeout(
                     source=source,
                     start_date=start_date,
                     end_date=end_date,
-                    timeout_seconds=timeout_seconds,
+                    timeout_seconds=max(timeout_seconds, source_timeout),
                 )
                 if frame is not None and not frame.empty:
                     self.store.save_trade_calendar(frame)
