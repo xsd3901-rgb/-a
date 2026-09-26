@@ -20,12 +20,13 @@ class MarketDataService:
     多数据源 -> 统一字段 -> 质量检查 -> Parquet/DuckDB 本地库。
     """
 
-    def __init__(self, store_root: str = "data_store") -> None:
+    def __init__(self, store_root: str | None = None) -> None:
+        root = str(SETTINGS.data_store_dir) if store_root is None else store_root
         self.primary = EastMoneyAKShareProvider()
         self.backup = BaoStockProvider()
-        self.store = MarketStore(store_root)
-        self.reference = ReferenceDataService(store_root)
-        self.universe = HistoricalUniverseService(store_root)
+        self.store = MarketStore(root)
+        self.reference = ReferenceDataService(root)
+        self.universe = HistoricalUniverseService(root)
         self.adjust = SETTINGS.adjust if SETTINGS.adjust in {"none", "qfq", "hfq"} else "qfq"
         self._attempted_today: set[tuple[str, str]] = set()
         self._cached_market_date: pd.Timestamp | None = None
