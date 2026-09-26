@@ -78,7 +78,10 @@ def run_local_prepare(
     announce("2/4 正在审计本地行情完整性")
     audit_details, audit_summary = run_data_audit(limit=bootstrap_limit)
     audit_state = str(audit_summary.get("状态", "未知"))
-    audit_ok = audit_state in {"通过", "可用但有警告"}
+    audit_ok = (
+            audit_state in {"通过", "可用但有警告"}
+            and audit_summary.get("股票池来源") == "security_lifecycle"
+        )
     record(
         "本地数据审计",
         "OK" if audit_ok else "FAILED",
