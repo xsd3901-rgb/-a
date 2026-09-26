@@ -89,6 +89,8 @@ jobs:
         run: PYTHONPATH=. python tests/smoke_local_prepare_offline.py
       - name: Offline EastMoney formula smoke test
         run: PYTHONPATH=. python tests/smoke_formula_offline.py
+      - name: Offline parallel engine smoke test
+        run: PYTHONPATH=. python tests/smoke_parallel_engine_offline.py
       - name: Offline pipeline smoke test
         run: PYTHONPATH=. python tests/smoke_pipeline_offline.py
       - name: Live free-data probe
