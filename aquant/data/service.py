@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-
 import pandas as pd
 
 from aquant.data.providers.baostock_provider import BaoStockProvider
 from aquant.data.providers.eastmoney_akshare import EastMoneyAKShareProvider
 from aquant.data.quality import validate_bar_frame
+from aquant.data.reference_service import ReferenceDataService
 from aquant.data.schema import FIELDS
 from aquant.data.storage import MarketStore
 from config import SETTINGS
@@ -15,7 +14,7 @@ from config import SETTINGS
 class MarketDataService:
     """面向扫描/回测的统一数据服务。
 
-    上层继续使用旧版 code/name/date/OHLCV 字段，底层改为：
+    上层继续使用旧版 code/name/date/OHLCV 字段，底层为：
     多数据源 -> 统一字段 -> 质量检查 -> Parquet/DuckDB 本地库。
     """
 
@@ -23,15 +22,19 @@ class MarketDataService:
         self.primary = EastMoneyAKShareProvider()
         self.backup = BaoStockProvider()
         self.store = MarketStore(store_root)
+        self.reference = ReferenceDataService(store_root)
         self.adjust = SETTINGS.adjust if SETTINGS.adjust in {"none", "qfq", "hfq"} else "qfq"
         self._attempted_today: set[tuple[str, str]] = set()
 
     def stock_list(self) -> pd.DataFrame:
-        df = self.primary.fetch_stock_list()
+        df = self.reference.stock_list(
+            fetcher=self.primary.fetch_stock_list,
+            max_age_hours=float(SETTINGS.cache_hours),
+        )
         if df is None or df.empty:
-            raise RuntimeError("全 A 股票列表获取失败")
+            raise RuntimeError("全 A 股票基础库为空")
 
-        out = df.rename(columns={"symbol": "code"}).copy()
+        out = df.copy()
         out["code"] = out["code"].astype(str).str.zfill(6)
         out["name"] = out["name"].astype(str).str.strip()
         out = out.drop_duplicates("code")
@@ -41,6 +44,20 @@ class MarketDataService:
         if SETTINGS.exclude_bj:
             out = out[~out["code"].str.startswith(("4", "8", "92"))]
         return out[["code", "name"]].reset_index(drop=True)
+
+    def trade_calendar(self, refresh: bool = False) -> pd.DataFrame:
+        return self.reference.trade_calendar(
+            max_age_hours=float(SETTINGS.cache_hours),
+            force=refresh,
+        )
+
+    def latest_trade_date(self) -> pd.Timestamp:
+        today = pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None).normalize()
+        latest = self.reference.latest_trade_date(
+            on_or_before=today,
+            max_age_hours=float(SETTINGS.cache_hours),
+        )
+        return latest if latest is not None else today
 
     @staticmethod
     def _legacy_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -57,14 +74,24 @@ class MarketDataService:
             FIELDS.turnover: "turnover",
         }
         out = df.rename(columns=rename).copy()
-        keep = [c for c in ["date", "open", "high", "low", "close", "volume", "amount", "turnover"] if c in out.columns]
+        keep = [
+            c
+            for c in ["date", "open", "high", "low", "close", "volume", "amount", "turnover"]
+            if c in out.columns
+        ]
         out = out[keep]
         out["date"] = pd.to_datetime(out["date"], errors="coerce")
         required = ["date", "open", "high", "low", "close", "volume"]
         out = out.dropna(subset=[c for c in required if c in out.columns])
         return out.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
 
-    def _fetch_with_fallback(self, symbol: str, start_date: str, end_date: str, adjust: str) -> pd.DataFrame:
+    def _fetch_with_fallback(
+        self,
+        symbol: str,
+        start_date: str,
+        end_date: str,
+        adjust: str,
+    ) -> pd.DataFrame:
         errors: list[str] = []
         for provider in (self.primary, self.backup):
             try:
@@ -108,7 +135,7 @@ class MarketDataService:
 
     def history(self, code: str, refresh: bool = False) -> pd.DataFrame:
         symbol = str(code).strip().zfill(6)[-6:]
-        today = pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None).normalize()
+        market_date = self.latest_trade_date()
         key = (symbol, self.adjust)
 
         latest = self.store.latest_date(symbol, self.adjust)
@@ -116,18 +143,18 @@ class MarketDataService:
 
         calendar_days = max(int(SETTINGS.history_days * 1.8), SETTINGS.history_days + 60)
         if refresh or latest is None:
-            start = today - pd.Timedelta(days=calendar_days)
+            start = market_date - pd.Timedelta(days=calendar_days)
         else:
             start = latest + pd.Timedelta(days=1)
 
-        should_fetch = refresh or latest is None or start <= today
+        should_fetch = refresh or latest is None or latest < market_date
         if key in self._attempted_today and not refresh:
             should_fetch = False
 
-        if should_fetch:
+        if should_fetch and start <= market_date:
             self._attempted_today.add(key)
             start_s = start.strftime("%Y-%m-%d")
-            end_s = today.strftime("%Y-%m-%d")
+            end_s = market_date.strftime("%Y-%m-%d")
             try:
                 self._fetch_with_fallback(symbol, start_s, end_s, self.adjust)
                 self._archive_unadjusted(symbol, start_s, end_s)
@@ -142,3 +169,7 @@ class MarketDataService:
         if legacy.empty:
             return legacy
         return legacy.tail(SETTINGS.history_days).reset_index(drop=True)
+
+    def refresh_catalog(self) -> None:
+        self.store.refresh_catalog()
+        self.reference.store.refresh_catalog(self.store.paths.catalog)
