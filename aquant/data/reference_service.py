@@ -5,6 +5,8 @@ from datetime import timedelta
 
 import pandas as pd
 
+from config import SETTINGS
+
 from aquant.data.reference import ReferenceStore
 from aquant.data.safe_fetch import fetch_trade_calendar_with_timeout
 
@@ -12,8 +14,9 @@ from aquant.data.safe_fetch import fetch_trade_calendar_with_timeout
 class ReferenceDataService:
     """维护股票基础库和交易日历；网络失败时优先退回本地快照。"""
 
-    def __init__(self, store_root: str = "data_store") -> None:
-        self.store = ReferenceStore(store_root)
+    def __init__(self, store_root: str | None = None) -> None:
+        root = str(SETTINGS.data_store_dir) if store_root is None else store_root
+        self.store = ReferenceStore(root)
 
     @staticmethod
     def _fresh(path, max_age_hours: float) -> bool:
