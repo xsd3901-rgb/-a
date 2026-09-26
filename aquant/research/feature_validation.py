@@ -536,25 +536,16 @@ def run_feature_validation(
             continue
 
         try:
-            hist = provider.history_range(
+            hist, execution = provider.research_history_range(
                 code,
                 stock_start.strftime("%Y-%m-%d"),
                 stock_end.strftime("%Y-%m-%d"),
                 refresh=refresh,
-                prefer_point_in_time=True,
             )
             if len(hist) < SETTINGS.min_bars + max(HORIZONS):
                 continue
 
             feat = score_history(hist, benchmark_bars=benchmark)
-            execution = provider.history_range(
-                code,
-                stock_start.strftime("%Y-%m-%d"),
-                stock_end.strftime("%Y-%m-%d"),
-                adjust="none",
-                refresh=False,
-                prefer_point_in_time=True,
-            )
             feat = attach_execution_bars(feat, execution)
             feat = add_forward_returns(feat)
             feat["date"] = pd.to_datetime(
