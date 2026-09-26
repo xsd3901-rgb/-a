@@ -12,6 +12,7 @@ from flask import Flask, jsonify, render_template_string, request
 
 from aquant.models.registry import model_status
 from aquant.research.feature_selection import build_v2_candidate
+from aquant.research.data_audit import run_data_audit
 from aquant.research.feature_validation import run_feature_validation
 from aquant.research.model_compare import run_model_comparison
 from aquant.research.system_validation import run_system_validation
@@ -67,7 +68,13 @@ def _execute_task(job_id: str, action: str, payload: dict) -> None:
         refresh = bool(payload.get("refresh", False))
         horizon = int(payload.get("horizon") or 10)
 
-        if action == "stock_detail":
+        if action == "audit_data":
+            frame, summary = run_data_audit(limit=limit)
+            result = {
+                "summary": summary,
+                "rows": _records(frame[frame["状态"] != "OK"] if not frame.empty else frame, 100),
+            }
+        elif action == "stock_detail":
             code = str(payload.get("code") or "").strip()
             if not code:
                 raise ValueError("请输入股票代码")
@@ -302,6 +309,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1327;padding:12px;b
     </div>
     <div class="controls" style="margin-top:12px">
       <button class="primary" onclick="runTask('bootstrap')">建立/更新本地数据库</button>
+      <button onclick="runTask('audit_data')">本地数据审计</button>
       <button class="primary" onclick="runTask('scan')">全市场扫描</button>
       <button onclick="runTask('stock_detail')">查看单股详情</button>
       <button onclick="runTask('backtest')">V1真实成交回测</button>
@@ -437,6 +445,7 @@ def api_status():
 @app.post("/api/run/<action>")
 def api_run(action: str):
     allowed = {
+        "audit_data",
         "stock_detail",
         "formula",
         "bootstrap",
