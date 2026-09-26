@@ -10,6 +10,7 @@ def main() -> None:
     assert root.status_code == 200
     text = root.get_data(as_text=True)
     assert "A-Quant" in text
+    assert "1.0.0-rc1" in text
     assert "一键系统验收" in text
     assert "建立/更新本地数据库" in text
     assert "本地数据审计" in text
@@ -20,6 +21,7 @@ def main() -> None:
     assert status.status_code == 200
     payload = status.get_json()
     assert payload["ok"] is True
+    assert payload["version"] == "1.0.0-rc1"
     assert "runtime" in payload
     assert "profile" in payload
     assert "paths" in payload
