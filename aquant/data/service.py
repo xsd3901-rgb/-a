@@ -9,6 +9,7 @@ from aquant.data.reference_service import ReferenceDataService
 from aquant.data.schema import FIELDS
 from aquant.data.safe_fetch import fetch_stock_list_with_timeout
 from aquant.data.storage import MarketStore
+from aquant.data.universe_service import HistoricalUniverseService
 from config import SETTINGS
 
 
@@ -24,6 +25,7 @@ class MarketDataService:
         self.backup = BaoStockProvider()
         self.store = MarketStore(store_root)
         self.reference = ReferenceDataService(store_root)
+        self.universe = HistoricalUniverseService(store_root)
         self.adjust = SETTINGS.adjust if SETTINGS.adjust in {"none", "qfq", "hfq"} else "qfq"
         self._attempted_today: set[tuple[str, str]] = set()
         self._cached_market_date: pd.Timestamp | None = None
@@ -75,6 +77,17 @@ class MarketDataService:
             max_age_hours=float(SETTINGS.cache_hours),
             force=refresh,
         )
+
+    def historical_universe(
+        self,
+        as_of_date: str | pd.Timestamp,
+        refresh: bool = False,
+    ) -> pd.DataFrame:
+        """返回指定历史日期当时已上市且尚未退市的股票池。
+
+        当前生命周期主资料来自 BaoStock，北交所历史覆盖后续再补独立来源。
+        """
+        return self.universe.universe_on(as_of_date, refresh=refresh)
 
     def latest_trade_date(self) -> pd.Timestamp:
         if self._cached_market_date is not None:
@@ -160,6 +173,71 @@ class MarketDataService:
                 self._fetch_with_fallback(symbol, archive_start, end_date, "none")
         except Exception:
             pass
+
+    def history_range(
+        self,
+        code: str,
+        start_date: str,
+        end_date: str,
+        *,
+        adjust: str | None = None,
+        refresh: bool = False,
+    ) -> pd.DataFrame:
+        """读取/补齐指定历史区间，供历史回测和退市股票研究使用。"""
+        symbol = str(code).strip().zfill(6)[-6:]
+        mode = adjust or self.adjust
+        if mode not in {"none", "qfq", "hfq"}:
+            raise ValueError(f"不支持的复权方式: {mode}")
+
+        start = pd.Timestamp(start_date).normalize()
+        end = pd.Timestamp(end_date).normalize()
+        if start > end:
+            raise ValueError("start_date 不能晚于 end_date")
+
+        local = self.store.read_daily(
+            symbol,
+            mode,
+            start_date=start.strftime("%Y-%m-%d"),
+            end_date=end.strftime("%Y-%m-%d"),
+        )
+
+        need_fetch = refresh or local.empty
+        if not local.empty:
+            local_dates = pd.to_datetime(local[FIELDS.trade_date], errors="coerce")
+            if local_dates.min() > start or local_dates.max() < end:
+                need_fetch = True
+
+        if need_fetch:
+            try:
+                self._fetch_with_fallback(
+                    symbol,
+                    start.strftime("%Y-%m-%d"),
+                    end.strftime("%Y-%m-%d"),
+                    mode,
+                )
+                if mode != "none":
+                    try:
+                        self._fetch_with_fallback(
+                            symbol,
+                            start.strftime("%Y-%m-%d"),
+                            end.strftime("%Y-%m-%d"),
+                            "none",
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                if local.empty:
+                    raise
+
+        result = self.store.read_daily(
+            symbol,
+            mode,
+            start_date=start.strftime("%Y-%m-%d"),
+            end_date=end.strftime("%Y-%m-%d"),
+        )
+        if result.empty:
+            result = local
+        return self._legacy_frame(result)
 
     def history(self, code: str, refresh: bool = False) -> pd.DataFrame:
         symbol = str(code).strip().zfill(6)[-6:]
