@@ -5,9 +5,10 @@ from itertools import product
 
 import pandas as pd
 
+from aquant.data.service import MarketDataService
+from aquant.runtime.resources import current_profile
 from backtest import backtest_scored_stock
 from config import SETTINGS, ensure_directories
-from data import FreeAStockData
 from evaluator import evaluate_trades
 from profile import save_strategy_profile
 from strategy import score_history
@@ -41,11 +42,18 @@ def _objective(metrics: dict) -> float:
 def optimize_parameters(limit: int = 100, refresh: bool = False) -> tuple[pd.DataFrame, dict | None]:
     """在受控候选参数中做训练/验证分段比较，并把通过验证的最佳参数写入策略档。"""
     ensure_directories()
-    provider = FreeAStockData()
+    provider = MarketDataService()
+    runtime = current_profile()
     stocks = provider.stock_list().head(limit)
     candidates = _candidates()
     train_trades: dict[int, list[dict]] = {i: [] for i in range(len(candidates))}
     valid_trades: dict[int, list[dict]] = {i: [] for i in range(len(candidates))}
+    flush_every = max(1, runtime.batch_size)
+
+    print(
+        f"资源档位: {runtime.name} | 批次 {runtime.batch_size} | "
+        f"计算并发上限 {runtime.compute_workers} | 回测并发上限 {runtime.backtest_workers}"
+    )
 
     for pos, row in stocks.iterrows():
         code, name = str(row["code"]), str(row["name"])
@@ -74,7 +82,7 @@ def optimize_parameters(limit: int = 100, refresh: bool = False) -> tuple[pd.Dat
         except Exception as exc:
             print(f"优化跳过 {code} {name}: {exc}")
         finally:
-            if (pos + 1) % SETTINGS.flush_every == 0:
+            if (pos + 1) % flush_every == 0:
                 print(f"参数优化进度 {pos + 1}/{len(stocks)}")
                 gc.collect()
 
