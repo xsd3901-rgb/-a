@@ -85,6 +85,8 @@ class EastMoneyAKShareProvider(DailyBarProvider):
 
         # AKShare 官方文档：stock_zh_a_hist 的成交量单位是“手”；A-Quant 统一为“股”。
         out[FIELDS.volume] = out[FIELDS.volume] * 100.0
+        # 能返回日线记录本身代表该交易日存在成交记录；停牌日通常不会出现在该接口结果中。
+        out[FIELDS.trade_status] = 1
         out[FIELDS.provider] = self.info.provider
         out[FIELDS.adapter] = self.info.adapter
         out[FIELDS.adjustment] = adjust
@@ -102,6 +104,7 @@ class EastMoneyAKShareProvider(DailyBarProvider):
             FIELDS.volume,
             FIELDS.amount,
             FIELDS.turnover,
+            FIELDS.trade_status,
             FIELDS.provider,
             FIELDS.adapter,
             FIELDS.adjustment,
