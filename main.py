@@ -4,7 +4,7 @@ import argparse
 
 from backtest import run_backtest
 from config import SETTINGS
-from evaluator import evaluate_trades, metrics_frame
+from evaluator import evaluate_by_market_regime, evaluate_trades, metrics_frame
 from optimizer import optimize_parameters
 from profile import load_strategy_profile
 from scanner import scan_market
@@ -49,9 +49,19 @@ def main() -> None:
             index=False,
             encoding="utf-8-sig",
         )
+        by_regime = evaluate_by_market_regime(trades)
+        if not by_regime.empty:
+            by_regime.to_csv(
+                SETTINGS.report_dir / "backtest_by_market_regime.csv",
+                index=False,
+                encoding="utf-8-sig",
+            )
         print("\n回测统计：")
         for key, value in metrics.items():
             print(f"{key}: {value}")
+        if not by_regime.empty:
+            print("\n按沪深市场环境拆分：")
+            print(by_regime.to_string(index=False))
         return
 
     if args.command == "optimize":
