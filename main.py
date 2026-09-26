@@ -6,6 +6,7 @@ from backtest import run_backtest
 from bootstrap import bootstrap_market
 from config import SETTINGS
 from evaluator import evaluate_by_market_regime, evaluate_trades, metrics_frame
+from eastmoney_formula import write_formula
 from aquant.research.feature_validation import run_feature_validation
 from aquant.research.feature_selection import build_v2_candidate
 from aquant.research.walk_forward import run_walk_forward
@@ -55,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     opt.add_argument("--limit", type=int, default=100, help="优化样本股票数，默认100")
     opt.add_argument("--refresh", action="store_true", help="强制刷新本地缓存")
 
+    sub.add_parser("formula", help="导出东方财富 V1 参考选股公式")
     sub.add_parser("profile", help="查看当前活动策略参数")
     return parser
 
@@ -193,6 +195,12 @@ def main() -> None:
                 print(f"{key}: {value}")
         else:
             print("\n没有候选参数通过稳健性检查，活动参数保持不变。")
+        return
+
+    if args.command == "formula":
+        path = write_formula()
+        print(f"东方财富 V1 参考公式已导出：{path}")
+        print("提示：ST/停牌/历史涨跌停等点时风控仍以 A-Quant 本地系统为准。")
         return
 
     if args.command == "profile":
