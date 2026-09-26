@@ -247,7 +247,7 @@ class MarketDataService:
         except Exception:
             pass
 
-    def history_range(
+    def sync_history_range(
         self,
         code: str,
         start_date: str,
@@ -256,14 +256,8 @@ class MarketDataService:
         adjust: str | None = None,
         refresh: bool = False,
         prefer_point_in_time: bool = False,
-    ) -> pd.DataFrame:
-        """读取/增量补齐指定历史区间。
-
-        非 refresh 模式只下载本地数据之前/之后真正缺失的首尾区间，
-        不再因为最后缺一天就重复抓取整个 3~4 年窗口。
-        内部交易日缺口由 data-audit 单独识别，避免每次普通读取都做
-        昂贵的全日历比对。
-        """
+    ) -> dict:
+        """仅同步本地文件并返回轻量统计，不加载完整 OHLCV 到内存。"""
         symbol = str(code).strip().zfill(6)[-6:]
         mode = adjust or self.adjust
         if mode not in {"none", "qfq", "hfq"}:
@@ -276,7 +270,7 @@ class MarketDataService:
 
         start_s = start.strftime("%Y-%m-%d")
         end_s = end.strftime("%Y-%m-%d")
-        local = self.store.read_daily(
+        local_stats = self.store.light_stats(
             symbol,
             mode,
             start_date=start_s,
@@ -284,17 +278,16 @@ class MarketDataService:
         )
 
         segments: list[tuple[pd.Timestamp, pd.Timestamp]] = []
-        if refresh or local.empty:
+        if refresh or int(local_stats.get("rows", 0)) == 0:
             segments.append((start, end))
         else:
-            local_dates = pd.to_datetime(
-                local[FIELDS.trade_date], errors="coerce"
-            ).dropna()
-            if local_dates.empty:
+            local_min = local_stats.get("start")
+            local_max = local_stats.get("end")
+            if local_min is None or local_max is None:
                 segments.append((start, end))
             else:
-                local_min = pd.Timestamp(local_dates.min()).normalize()
-                local_max = pd.Timestamp(local_dates.max()).normalize()
+                local_min = pd.Timestamp(local_min).normalize()
+                local_max = pd.Timestamp(local_max).normalize()
                 if local_min > start:
                     head_end = local_min - pd.Timedelta(days=1)
                     if start <= head_end:
@@ -318,22 +311,57 @@ class MarketDataService:
                 fetch_errors.append(exc)
 
         if mode != "none" and segments:
-            # 只做未复权尾部归档，不重复抓取整个历史窗口。
             try:
                 self._archive_unadjusted(symbol, start_s, end_s)
             except Exception:
                 pass
 
-        result = self.store.read_daily(
+        stats = self.store.light_stats(
             symbol,
             mode,
             start_date=start_s,
             end_date=end_s,
         )
-        if result.empty:
-            if local.empty and fetch_errors:
-                raise fetch_errors[-1]
-            result = local
+        if int(stats.get("rows", 0)) == 0 and fetch_errors:
+            raise fetch_errors[-1]
+        stats["fetched_segments"] = [
+            (
+                seg_start.strftime("%Y-%m-%d"),
+                seg_end.strftime("%Y-%m-%d"),
+            )
+            for seg_start, seg_end in segments
+        ]
+        stats["adjust"] = mode
+        stats["symbol"] = symbol
+        return stats
+
+    def history_range(
+        self,
+        code: str,
+        start_date: str,
+        end_date: str,
+        *,
+        adjust: str | None = None,
+        refresh: bool = False,
+        prefer_point_in_time: bool = False,
+    ) -> pd.DataFrame:
+        """同步后读取完整指定历史区间。"""
+        symbol = str(code).strip().zfill(6)[-6:]
+        mode = adjust or self.adjust
+        self.sync_history_range(
+            symbol,
+            start_date,
+            end_date,
+            adjust=mode,
+            refresh=refresh,
+            prefer_point_in_time=prefer_point_in_time,
+        )
+        result = self.store.read_daily(
+            symbol,
+            mode,
+            start_date=pd.Timestamp(start_date).strftime("%Y-%m-%d"),
+            end_date=pd.Timestamp(end_date).strftime("%Y-%m-%d"),
+        )
         return self._legacy_frame(result)
 
     def research_history_range(
