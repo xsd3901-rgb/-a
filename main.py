@@ -12,6 +12,7 @@ from aquant.research.feature_selection import build_v2_candidate
 from aquant.research.walk_forward import run_walk_forward
 from aquant.research.model_compare import run_model_comparison
 from aquant.research.system_validation import run_system_validation
+from aquant.research.stock_detail import stock_detail
 from aquant.research.portfolio import simulate_portfolio
 from optimizer import optimize_parameters
 from profile import load_strategy_profile
@@ -26,6 +27,10 @@ def build_parser() -> argparse.ArgumentParser:
     bootstrap.add_argument("--limit", type=int, default=None, help="仅建库前N只；不填则全部")
     bootstrap.add_argument("--refresh", action="store_true", help="强制刷新远端数据")
     bootstrap.add_argument("--days", type=int, default=None, help="向前建库自然日数，默认使用配置")
+
+    stock = sub.add_parser("stock", help="查看单只股票当前量化详情")
+    stock.add_argument("code", help="6位股票代码")
+    stock.add_argument("--refresh", action="store_true", help="强制刷新行情")
 
     scan = sub.add_parser("scan", help="扫描股票市场")
     scan.add_argument("--limit", type=int, default=None, help="仅扫描前N只；不填则扫描全部")
@@ -76,6 +81,15 @@ def main() -> None:
         if not status.empty:
             print("\n最后20条建库状态：")
             print(status.tail(20).to_string(index=False))
+        return
+
+    if args.command == "stock":
+        summary, recent = stock_detail(args.code, refresh=args.refresh)
+        print("\n单股量化摘要：")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        print("\n最近20个交易日：")
+        print(recent.tail(20).to_string(index=False))
         return
 
     if args.command == "scan":
