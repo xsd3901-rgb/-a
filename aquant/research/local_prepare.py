@@ -79,9 +79,9 @@ def run_local_prepare(
     audit_details, audit_summary = run_data_audit(limit=bootstrap_limit)
     audit_state = str(audit_summary.get("状态", "未知"))
     audit_ok = (
-            audit_state in {"通过", "可用但有警告"}
-            and audit_summary.get("股票池来源") == "security_lifecycle"
-        )
+        audit_state in {"通过", "可用但有警告"}
+        and audit_summary.get("股票池来源") == "security_lifecycle"
+    )
     record(
         "本地数据审计",
         "OK" if audit_ok else "FAILED",
@@ -94,8 +94,8 @@ def run_local_prepare(
             "总体状态": "首次准备未通过",
             "停止步骤": "本地数据审计",
             "说明": (
-                "本地行情存在明显缺口或滞后。请重新执行建库/刷新，"
-                "不要带着残缺数据继续做正式验收。"
+                "本地行情存在明显缺口、点时字段不足，或历史生命周期股票池不可用。"
+                "请重新执行建库/刷新，不要带着降级数据继续做正式验收。"
             ),
         }
         _persist(status, summary)
