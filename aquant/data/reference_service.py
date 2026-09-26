@@ -6,6 +6,7 @@ from datetime import timedelta
 import pandas as pd
 
 from aquant.data.reference import ReferenceStore
+from aquant.data.safe_fetch import fetch_trade_calendar_with_timeout
 
 
 class ReferenceDataService:
@@ -45,61 +46,33 @@ class ReferenceDataService:
             return local[["code", "name"]].copy()
         raise RuntimeError("股票基础库获取失败且本地没有可用快照")
 
-    def _fetch_calendar_akshare(self, start_date: str, end_date: str) -> pd.DataFrame:
-        import akshare as ak
-
-        raw = ak.tool_trade_date_hist_sina()
-        if raw is None or raw.empty:
-            return pd.DataFrame()
-        date_col = "trade_date" if "trade_date" in raw.columns else raw.columns[0]
-        out = pd.DataFrame({"trade_date": pd.to_datetime(raw[date_col], errors="coerce")})
-        out = out.dropna(subset=["trade_date"])
-        start = pd.Timestamp(start_date)
-        end = pd.Timestamp(end_date)
-        out = out[(out["trade_date"] >= start) & (out["trade_date"] <= end)].copy()
-        out["is_open"] = True
-        out["provider"] = "sina"
-        return out.reset_index(drop=True)
-
-    def _fetch_calendar_baostock(self, start_date: str, end_date: str) -> pd.DataFrame:
-        import baostock as bs
-
-        login = bs.login()
-        if getattr(login, "error_code", "-1") != "0":
-            raise RuntimeError(f"BaoStock 登录失败: {login.error_code} {login.error_msg}")
-        try:
-            rs = bs.query_trade_dates(start_date=start_date, end_date=end_date)
-            if rs.error_code != "0":
-                raise RuntimeError(f"BaoStock 交易日历失败: {rs.error_code} {rs.error_msg}")
-            rows: list[list[str]] = []
-            while rs.next():
-                rows.append(rs.get_row_data())
-            raw = pd.DataFrame(rows, columns=rs.fields)
-        finally:
-            bs.logout()
-
-        if raw.empty:
-            return pd.DataFrame()
-        out = raw.rename(columns={"calendar_date": "trade_date", "is_trading_day": "is_open"}).copy()
-        out["trade_date"] = pd.to_datetime(out["trade_date"], errors="coerce")
-        out["is_open"] = out["is_open"].astype(str).eq("1")
-        out["provider"] = "baostock"
-        return out[["trade_date", "is_open", "provider"]].dropna(subset=["trade_date"]).reset_index(drop=True)
-
-    def refresh_trade_calendar(self, start_date: str = "2000-01-01", end_date: str | None = None) -> pd.DataFrame:
+    def refresh_trade_calendar(
+        self,
+        start_date: str = "2000-01-01",
+        end_date: str | None = None,
+        timeout_seconds: float = 15.0,
+    ) -> pd.DataFrame:
         if end_date is None:
-            end_date = (pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None) + timedelta(days=370)).strftime("%Y-%m-%d")
+            end_date = (
+                pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None) + timedelta(days=370)
+            ).strftime("%Y-%m-%d")
 
         errors: list[str] = []
-        for loader in (self._fetch_calendar_akshare, self._fetch_calendar_baostock):
+        for source in ("akshare", "baostock"):
             try:
-                frame = loader(start_date, end_date)
+                frame = fetch_trade_calendar_with_timeout(
+                    source=source,
+                    start_date=start_date,
+                    end_date=end_date,
+                    timeout_seconds=timeout_seconds,
+                )
                 if frame is not None and not frame.empty:
                     self.store.save_trade_calendar(frame)
                     self.store.refresh_catalog()
                     return self.store.read_trade_calendar()
+                errors.append(f"{source}: empty")
             except Exception as exc:
-                errors.append(str(exc))
+                errors.append(f"{source}: {exc}")
 
         local = self.store.read_trade_calendar()
         if not local.empty:
@@ -117,6 +90,10 @@ class ReferenceDataService:
                 return local
             raise
 
-    def latest_trade_date(self, on_or_before: str | pd.Timestamp | None = None, max_age_hours: float = 18.0) -> pd.Timestamp | None:
+    def latest_trade_date(
+        self,
+        on_or_before: str | pd.Timestamp | None = None,
+        max_age_hours: float = 18.0,
+    ) -> pd.Timestamp | None:
         self.trade_calendar(max_age_hours=max_age_hours)
         return self.store.latest_trade_date(on_or_before=on_or_before)
