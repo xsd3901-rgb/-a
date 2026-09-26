@@ -4,13 +4,47 @@ import gc
 
 import pandas as pd
 
+from aquant.data.context_service import MarketContextService
 from aquant.data.service import MarketDataService
+from aquant.research.market_regime import build_market_regime_history
 from aquant.runtime.resources import current_profile
 from config import SETTINGS, ensure_directories
 from profile import load_strategy_profile
 from strategy import score_history
 
 ROUND_TRIP_COST_PCT = 0.20  # 粗略计入手续费/滑点，后续可再细化
+
+
+def _attach_market_regime(
+    trades: pd.DataFrame,
+    regime_history: pd.DataFrame,
+) -> pd.DataFrame:
+    if trades is None or trades.empty or regime_history is None or regime_history.empty:
+        return trades
+    if "信号日" not in trades.columns:
+        return trades
+
+    out = trades.copy()
+    out["_signal_date"] = pd.to_datetime(out["信号日"], errors="coerce").dt.normalize()
+    regime = regime_history[
+        ["trade_date", "market_regime", "market_score"]
+    ].copy()
+    regime["trade_date"] = pd.to_datetime(
+        regime["trade_date"], errors="coerce"
+    ).dt.normalize()
+    out = out.merge(
+        regime,
+        left_on="_signal_date",
+        right_on="trade_date",
+        how="left",
+    )
+    out = out.rename(
+        columns={
+            "market_regime": "市场环境",
+            "market_score": "环境分",
+        }
+    )
+    return out.drop(columns=["_signal_date", "trade_date"], errors="ignore")
 
 
 def backtest_scored_stock(
@@ -133,6 +167,23 @@ def run_backtest(
     if limit and limit > 0:
         stocks = stocks.head(limit)
 
+    regime_history = pd.DataFrame()
+    try:
+        market_end = provider.latest_trade_date()
+        market_start = market_end - pd.Timedelta(days=max(500, int(SETTINGS.history_days * 2.1)))
+        regime_history = build_market_regime_history(
+            MarketContextService(),
+            market_start,
+            market_end,
+        )
+        if not regime_history.empty:
+            print(
+                f"已加载沪深市场环境历史 {len(regime_history)} 个交易日，"
+                "用于回测分阶段评估（不改变当前买卖信号）。"
+            )
+    except Exception as exc:
+        print(f"市场环境历史暂不可用，回测继续: {exc}")
+
     all_trades: list[dict] = []
     errors: list[dict] = []
     total = len(stocks)
@@ -166,7 +217,7 @@ def run_backtest(
                 print(f"回测进度 {i + 1}/{total}，累计交易 {len(all_trades)}，失败 {len(errors)}")
                 gc.collect()
 
-    trades = pd.DataFrame(all_trades)
+    trades = _attach_market_regime(pd.DataFrame(all_trades), regime_history)
     if persist:
         trades.to_csv(SETTINGS.report_dir / "backtest_trades.csv", index=False, encoding="utf-8-sig")
         if errors:
