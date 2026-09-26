@@ -82,6 +82,13 @@ class MarketDataService:
             force=refresh,
         )
 
+    def historical_securities(self, refresh: bool = False) -> pd.DataFrame:
+        """返回带上市/退市日期的沪深历史证券资料。"""
+        out = self.universe.all_securities(refresh=refresh)
+        if SETTINGS.market_scope == "shsz" and not out.empty:
+            out = out[out["code"].map(is_shsz_a_share)].reset_index(drop=True)
+        return out
+
     def historical_universe(
         self,
         as_of_date: str | pd.Timestamp,
@@ -152,9 +159,16 @@ class MarketDataService:
         start_date: str,
         end_date: str,
         adjust: str,
+        *,
+        prefer_point_in_time: bool = False,
     ) -> pd.DataFrame:
         errors: list[str] = []
-        for provider in (self.primary, self.backup):
+        providers = (
+            (self.backup, self.primary)
+            if prefer_point_in_time
+            else (self.primary, self.backup)
+        )
+        for provider in providers:
             try:
                 frame = provider.fetch_daily(symbol, start_date, end_date, adjust=adjust)
                 if frame is None or frame.empty:
@@ -202,6 +216,7 @@ class MarketDataService:
         *,
         adjust: str | None = None,
         refresh: bool = False,
+        prefer_point_in_time: bool = False,
     ) -> pd.DataFrame:
         """读取/补齐指定历史区间，供历史回测和退市股票研究使用。"""
         symbol = str(code).strip().zfill(6)[-6:]
@@ -234,6 +249,7 @@ class MarketDataService:
                     start.strftime("%Y-%m-%d"),
                     end.strftime("%Y-%m-%d"),
                     mode,
+                    prefer_point_in_time=prefer_point_in_time,
                 )
                 if mode != "none":
                     try:
@@ -242,6 +258,7 @@ class MarketDataService:
                             start.strftime("%Y-%m-%d"),
                             end.strftime("%Y-%m-%d"),
                             "none",
+                            prefer_point_in_time=prefer_point_in_time,
                         )
                     except Exception:
                         pass
