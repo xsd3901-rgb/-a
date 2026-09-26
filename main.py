@@ -10,6 +10,7 @@ from eastmoney_formula import write_formula
 from aquant.models.registry import model_status
 from aquant.research.feature_validation import run_feature_validation
 from aquant.research.data_audit import run_data_audit
+from aquant.research.data_repair import repair_failed_market_data
 from aquant.research.feature_selection import build_v2_candidate
 from aquant.research.walk_forward import run_walk_forward
 from aquant.research.model_compare import run_model_comparison
@@ -37,6 +38,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     audit = sub.add_parser("audit-data", help="审计本地行情完整性，不访问网络")
     audit.add_argument("--limit", type=int, default=None, help="仅检查前N个本地股票文件")
+
+    repair = sub.add_parser("repair-data", help="只修复数据审计中的 FAIL 股票")
+    repair.add_argument("--limit", type=int, default=None, help="最多修复N只失败股票")
 
     bootstrap = sub.add_parser("bootstrap", help="建立/增量更新沪深A股本地数据库")
     bootstrap.add_argument("--limit", type=int, default=None, help="仅建库前N只；不填则全部")
@@ -126,6 +130,16 @@ def main() -> None:
             if not problems.empty:
                 print("\n需要关注的数据：")
                 print(problems.head(50).to_string(index=False))
+        return
+
+    if args.command == "repair-data":
+        frame, summary = repair_failed_market_data(max_symbols=args.limit)
+        print("\n数据定向修复汇总：")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        if not frame.empty:
+            print("\n修复明细：")
+            print(frame.to_string(index=False))
         return
 
     if args.command == "bootstrap":
