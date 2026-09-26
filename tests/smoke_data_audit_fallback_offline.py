@@ -55,8 +55,11 @@ def main() -> None:
                 "high": close * 1.01,
                 "low": close * 0.99,
                 "close": close,
+                "preclose": np.r_[close[0], close[:-1]],
                 "volume": 1_000_000.0,
                 "pct_change": np.r_[0.0, np.diff(close) / close[:-1] * 100.0],
+                "trade_status": 1,
+                "is_st": 0,
             }
         )
         bars.to_parquet(none_dir / "600001.parquet", index=False)
