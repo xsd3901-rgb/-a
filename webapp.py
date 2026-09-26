@@ -22,6 +22,7 @@ from aquant.research.stock_detail import stock_detail
 from aquant.research.portfolio import simulate_portfolio
 from aquant.research.walk_forward import run_walk_forward
 from aquant.runtime.resources import current_memory_gb, current_profile
+from aquant.version import __version__
 from backtest import run_backtest
 from bootstrap import bootstrap_market
 from config import SETTINGS, ensure_directories
@@ -312,7 +313,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1327;padding:12px;b
       <h1>A-Quant 沪深A股量化终端</h1>
       <div class="sub">免费数据源 · 历史股票池 · 点时ST/停牌 · 未复权真实成交层 · 特征验证 · Walk-Forward · V1/V2 对照 · 有限资金组合 · 逐日盯市回撤</div>
     </div>
-    <span class="pill">Local Research Terminal</span>
+    <span class="pill">v{{ version }} · Local Research Terminal</span>
   </div>
 
   <div class="grid">
@@ -381,6 +382,10 @@ function payload(){
   return {limit:raw===''?null:Number(raw),refresh:$('refresh').checked,horizon:Number($('horizon').value),code:$('stockCode').value.trim()};
 }
 async function runTask(action){
+  if(action==='prepare_local'){
+    const ok=confirm('首次完整准备会建立/更新沪深全市场本地数据库，并继续运行研究验收。首次执行可能耗时较长。确认开始吗？');
+    if(!ok)return;
+  }
   $('status').textContent='正在提交任务...';
   $('result').innerHTML='';
   $('summary').innerHTML='';
@@ -445,7 +450,7 @@ refreshStatus();
 
 @app.get("/")
 def index():
-    return render_template_string(PAGE)
+    return render_template_string(PAGE, version=__version__)
 
 
 @app.get("/api/status")
@@ -456,6 +461,7 @@ def api_status():
     return jsonify(
         {
             "ok": True,
+            "version": __version__,
             "runtime": _safe_dict(runtime.__dict__),
             "memory": {
                 "total_gb": round(total, 2),
