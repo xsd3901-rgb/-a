@@ -14,6 +14,7 @@ def main() -> None:
     assert "一键系统验收" in text
     assert "建立/更新本地数据库" in text
     assert "本地数据审计" in text
+    assert "修复失败数据" in text
     assert "就绪检查" in text
     assert "首次完整准备" in text
 
