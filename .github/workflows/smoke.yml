@@ -61,6 +61,8 @@ jobs:
         run: PYTHONPATH=. python tests/smoke_data_audit_offline.py
       - name: Offline data audit fallback smoke test
         run: PYTHONPATH=. python tests/smoke_data_audit_fallback_offline.py
+      - name: Offline targeted data repair smoke test
+        run: PYTHONPATH=. python tests/smoke_data_repair_offline.py
       - name: Offline universe and trading rules smoke test
         run: PYTHONPATH=. python tests/smoke_universe_rules_offline.py
       - name: Offline execution rules smoke test
