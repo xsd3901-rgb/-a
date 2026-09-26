@@ -10,3 +10,5 @@ reports/
 *.xlsx
 *.csv
 *.csv.gz
+
+data_store/
