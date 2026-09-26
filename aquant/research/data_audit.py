@@ -59,9 +59,8 @@ def audit_market_store(
     none_dir = base / "standard" / "daily" / "none"
     qfq_dir = base / "standard" / "daily" / "qfq"
 
-    files = sorted(none_dir.glob("*.parquet")) if none_dir.exists() else []
-    if limit and limit > 0:
-        files = files[: int(limit)]
+    all_files = sorted(none_dir.glob("*.parquet")) if none_dir.exists() else []
+    file_map = {path.stem.zfill(6): path for path in all_files}
 
     cal = calendar.copy() if calendar is not None else pd.DataFrame()
     if not cal.empty and "trade_date" in cal.columns:
@@ -87,10 +86,57 @@ def audit_market_store(
     )
     life_map = _lifecycle_map(lifecycle)
 
+    expected_codes: set[str] = set()
+    if lifecycle is not None and not lifecycle.empty and "code" in lifecycle.columns:
+        life_frame = lifecycle.copy()
+        life_frame["code"] = life_frame["code"].astype(str).str.zfill(6)
+        listing = pd.to_datetime(
+            life_frame.get("listing_date", pd.Series(pd.NaT, index=life_frame.index)),
+            errors="coerce",
+        ).dt.normalize()
+        delisting = pd.to_datetime(
+            life_frame.get("delisting_date", pd.Series(pd.NaT, index=life_frame.index)),
+            errors="coerce",
+        ).dt.normalize()
+        if latest_market_date is not None:
+            listed = listing.isna() | (listing <= latest_market_date)
+            if earliest_allowed is not None:
+                overlaps = delisting.isna() | (delisting >= earliest_allowed)
+            else:
+                overlaps = pd.Series(True, index=life_frame.index)
+            expected_codes = set(
+                life_frame.loc[listed & overlaps, "code"].dropna().astype(str)
+            )
+
+    codes = sorted(expected_codes | set(file_map))
+    if limit and limit > 0:
+        codes = codes[: int(limit)]
+
     rows: list[dict] = []
 
-    for path in files:
-        code = path.stem.zfill(6)
+    for code in codes:
+        path = file_map.get(code)
+        if path is None:
+            life = life_map.get(code, {})
+            rows.append(
+                {
+                    "代码": code,
+                    "名称": str(life.get("name") or ""),
+                    "状态": "FAIL",
+                    "原因": "缺少未复权行情文件",
+                    "记录数": 0,
+                    "起始日": "",
+                    "最新日": "",
+                    "覆盖率%": 0.0,
+                    "缺失交易日": 0,
+                    "滞后交易日": 0,
+                    "重复日期": 0,
+                    "涨跌幅字段覆盖率%": 0.0,
+                    "QFQ存在": (qfq_dir / f"{code}.parquet").exists(),
+                }
+            )
+            continue
+
         frame = _read_daily_file(path)
         if frame.empty:
             rows.append(
@@ -242,7 +288,7 @@ def audit_market_store(
             "OK": 0,
             "WARN": 0,
             "FAIL": 0,
-            "未复权文件数": len(files),
+            "未复权文件数": len(all_files),
             "QFQ文件数": qfq_count,
             "交易日历状态": "缺失" if cal.empty else "可用",
             "市场最新交易日": (
@@ -275,7 +321,7 @@ def audit_market_store(
         "OK": int(counts.get("OK", 0)),
         "WARN": warn_count,
         "FAIL": fail_count,
-        "未复权文件数": int(len(files)),
+        "未复权文件数": int(len(all_files)),
         "QFQ文件数": int(qfq_count),
         "交易日历状态": "可用" if calendar_ok else "缺失",
         "市场最新交易日": (
