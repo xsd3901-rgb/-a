@@ -9,7 +9,9 @@ class ReferenceStore:
     """股票基础库与交易日历的轻量本地存储。"""
 
     def __init__(self, root: str | Path = "data_store") -> None:
-        self.root = Path(root) / "standard" / "reference"
+        base = Path(root)
+        self.root = base / "standard" / "reference"
+        self.catalog = base / "aquant.duckdb"
         self.root.mkdir(parents=True, exist_ok=True)
         self.security_path = self.root / "security_master.parquet"
         self.calendar_path = self.root / "trade_calendar.parquet"
@@ -61,10 +63,11 @@ class ReferenceStore:
             return None
         return pd.to_datetime(open_days["trade_date"]).max().normalize()
 
-    def refresh_catalog(self, catalog_path: str | Path = "data_store/aquant.duckdb") -> None:
+    def refresh_catalog(self, catalog_path: str | Path | None = None) -> None:
         import duckdb
 
-        con = duckdb.connect(str(catalog_path))
+        target = self.catalog if catalog_path is None else Path(catalog_path)
+        con = duckdb.connect(str(target))
         try:
             for name, path in (
                 ("security_master", self.security_path),
