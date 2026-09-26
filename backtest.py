@@ -58,10 +58,13 @@ def _execution_row(row: pd.Series) -> pd.Series:
 def attach_execution_bars(
     scored: pd.DataFrame,
     execution_bars: pd.DataFrame | None,
+    *,
+    preserve_execution_dates: bool = True,
 ) -> pd.DataFrame:
-    """把未复权日线以 exec_ 前缀附到信号特征上。
+    """把未复权执行日线以 exec_ 前缀附到信号特征上。
 
-    技术指标继续由复权价格计算；成交、涨跌停、停牌和收益计算使用未复权价格。
+    默认保留 execution 独有日期（例如停牌日）。这些行没有技术特征，
+    但会留在回测时间轴中，从而让“次日停牌”“持仓中停牌”等约束真正生效。
     """
     if scored is None or scored.empty:
         return pd.DataFrame() if scored is None else scored.copy()
@@ -78,7 +81,13 @@ def attach_execution_bars(
     right = right.rename(
         columns={col: f"exec_{col}" for col in keep if col != "date"}
     )
-    return left.merge(right, on="date", how="left")
+    how = "outer" if preserve_execution_dates else "left"
+    merged = left.merge(right, on="date", how=how)
+    return (
+        merged.sort_values("date")
+        .drop_duplicates("date", keep="last")
+        .reset_index(drop=True)
+    )
 
 
 def _attach_market_regime(
