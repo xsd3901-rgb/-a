@@ -81,7 +81,7 @@ class BaoStockProvider(DailyBarProvider):
         if getattr(login, "error_code", "-1") != "0":
             raise RuntimeError(f"BaoStock 登录失败: {login.error_code} {login.error_msg}")
 
-        fields = "date,code,open,high,low,close,volume,amount,turn,tradestatus"
+        fields = "date,code,open,high,low,close,preclose,volume,amount,turn,tradestatus,pctChg,isST"
         try:
             rs = bs.query_history_k_data_plus(
                 code,
@@ -111,16 +111,19 @@ class BaoStockProvider(DailyBarProvider):
             "high": FIELDS.high,
             "low": FIELDS.low,
             "close": FIELDS.close,
+            "preclose": FIELDS.preclose,
             "volume": FIELDS.volume,
             "amount": FIELDS.amount,
             "turn": FIELDS.turnover,
             "tradestatus": FIELDS.trade_status,
+            "pctChg": FIELDS.pct_change,
+            "isST": FIELDS.is_st,
         }
         out = raw.rename(columns=rename).copy()
         out[FIELDS.symbol] = out[FIELDS.symbol].map(normalize_symbol)
         out[FIELDS.trade_date] = pd.to_datetime(out[FIELDS.trade_date]).dt.normalize()
 
-        numeric = [FIELDS.open, FIELDS.high, FIELDS.low, FIELDS.close, FIELDS.volume, FIELDS.amount, FIELDS.turnover, FIELDS.trade_status]
+        numeric = [FIELDS.open, FIELDS.high, FIELDS.low, FIELDS.close, FIELDS.preclose, FIELDS.volume, FIELDS.amount, FIELDS.turnover, FIELDS.pct_change, FIELDS.trade_status, FIELDS.is_st]
         for col in numeric:
             if col in out.columns:
                 out[col] = pd.to_numeric(out[col], errors="coerce")
@@ -140,10 +143,13 @@ class BaoStockProvider(DailyBarProvider):
             FIELDS.high,
             FIELDS.low,
             FIELDS.close,
+            FIELDS.preclose,
             FIELDS.volume,
             FIELDS.amount,
             FIELDS.turnover,
+            FIELDS.pct_change,
             FIELDS.trade_status,
+            FIELDS.is_st,
             FIELDS.provider,
             FIELDS.adapter,
             FIELDS.adjustment,
