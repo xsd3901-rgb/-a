@@ -430,6 +430,11 @@ async function refreshStatus(){
   $('modelState').textContent=d.models.active_model+' / '+d.models.v2_state;
   $('reportPath').textContent=d.paths.reports;
   $('reports').innerHTML=table(d.reports);
+  if(d.active_job && !activeJob){
+    activeJob=d.active_job;
+    $('jobBadge').textContent='运行中 · '+activeJob;
+    startPolling();
+  }
 }
 refreshStatus();
 </script>
