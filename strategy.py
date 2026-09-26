@@ -5,8 +5,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from aquant.features.technical import TechnicalFeatureBuilder
 from config import SETTINGS
-from indicators import add_indicators
 from profile import load_strategy_profile
 
 
@@ -22,7 +22,7 @@ class Signal:
 
 
 def score_history(df: pd.DataFrame) -> pd.DataFrame:
-    out = add_indicators(df)
+    out = TechnicalFeatureBuilder().transform(df)
     score = pd.Series(0.0, index=out.index)
 
     # 趋势
