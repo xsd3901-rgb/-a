@@ -9,6 +9,7 @@ from evaluator import evaluate_by_market_regime, evaluate_trades, metrics_frame
 from eastmoney_formula import write_formula
 from aquant.models.registry import model_status
 from aquant.research.feature_validation import run_feature_validation
+from aquant.research.data_audit import run_data_audit
 from aquant.research.feature_selection import build_v2_candidate
 from aquant.research.walk_forward import run_walk_forward
 from aquant.research.model_compare import run_model_comparison
@@ -23,6 +24,9 @@ from scanner import scan_market
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="A股短期波段量化选股器")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    audit = sub.add_parser("audit-data", help="审计本地行情完整性，不访问网络")
+    audit.add_argument("--limit", type=int, default=None, help="仅检查前N个本地股票文件")
 
     bootstrap = sub.add_parser("bootstrap", help="建立/增量更新沪深A股本地数据库")
     bootstrap.add_argument("--limit", type=int, default=None, help="仅建库前N只；不填则全部")
@@ -70,6 +74,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+
+    if args.command == "audit-data":
+        details, summary = run_data_audit(limit=args.limit)
+        print("\n本地数据审计汇总：")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        if not details.empty:
+            problems = details[details["状态"] != "OK"]
+            if not problems.empty:
+                print("\n需要关注的数据：")
+                print(problems.head(50).to_string(index=False))
+        return
 
     if args.command == "bootstrap":
         status, summary = bootstrap_market(
