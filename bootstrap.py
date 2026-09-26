@@ -21,11 +21,21 @@ def _bootstrap_universe(
         if stocks.empty:
             raise RuntimeError("历史生命周期股票池为空")
 
+        listing_source = (
+            stocks["listing_date"]
+            if "listing_date" in stocks.columns
+            else pd.Series(pd.NaT, index=stocks.index)
+        )
+        delisting_source = (
+            stocks["delisting_date"]
+            if "delisting_date" in stocks.columns
+            else pd.Series(pd.NaT, index=stocks.index)
+        )
         listing = pd.to_datetime(
-            stocks.get("listing_date"), errors="coerce"
+            listing_source, errors="coerce"
         ).dt.normalize()
         delisting = pd.to_datetime(
-            stocks.get("delisting_date"), errors="coerce"
+            delisting_source, errors="coerce"
         ).dt.normalize()
         stocks["listing_date"] = listing
         stocks["delisting_date"] = delisting
