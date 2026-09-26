@@ -2,11 +2,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+
 @dataclass(frozen=True)
 class Settings:
-    # 路径
-    cache_dir: Path = Path("data_cache")
-    report_dir: Path = Path("reports")
+    # 路径：全部锚定项目根目录，避免从其他 PowerShell 目录启动时把数据写到别处。
+    project_root: Path = PROJECT_ROOT
+    data_store_dir: Path = PROJECT_ROOT / "data_store"
+    cache_dir: Path = PROJECT_ROOT / "data_cache"
+    report_dir: Path = PROJECT_ROOT / "reports"
 
     # 数据
     history_days: int = 320
@@ -38,5 +43,6 @@ SETTINGS = Settings()
 
 
 def ensure_directories() -> None:
+    SETTINGS.data_store_dir.mkdir(parents=True, exist_ok=True)
     SETTINGS.cache_dir.mkdir(parents=True, exist_ok=True)
     SETTINGS.report_dir.mkdir(parents=True, exist_ok=True)
