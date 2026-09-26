@@ -108,6 +108,106 @@ class MarketStore:
             return None
         return pd.to_datetime(dates[FIELDS.trade_date]).max().normalize()
 
+    def light_stats(
+        self,
+        symbol: str,
+        adjust: str = "none",
+        *,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> dict:
+        """只读取日期/来源/点时状态等轻量列，避免为更新检查加载完整 OHLCV。"""
+        path = self._standard_path(symbol, adjust)
+        if not path.exists():
+            return {
+                "rows": 0,
+                "start": None,
+                "end": None,
+                "providers": [],
+                "tradable_rows": 0,
+                "pct_change_coverage": 0.0,
+            }
+
+        try:
+            import pyarrow.parquet as pq
+        except ImportError as exc:
+            raise RuntimeError("需要 pyarrow 才能读取本地 Parquet 元数据") from exc
+
+        schema_names = set(pq.ParquetFile(path).schema_arrow.names)
+        wanted = [
+            FIELDS.trade_date,
+            FIELDS.provider,
+            FIELDS.pct_change,
+            FIELDS.trade_status,
+        ]
+        columns = [col for col in wanted if col in schema_names]
+        if FIELDS.trade_date not in columns:
+            return {
+                "rows": 0,
+                "start": None,
+                "end": None,
+                "providers": [],
+                "tradable_rows": 0,
+                "pct_change_coverage": 0.0,
+            }
+
+        frame = pd.read_parquet(path, columns=columns)
+        dates = pd.to_datetime(
+            frame[FIELDS.trade_date], errors="coerce"
+        ).dt.normalize()
+        valid = dates.notna()
+        if start_date:
+            valid &= dates >= pd.Timestamp(start_date).normalize()
+        if end_date:
+            valid &= dates <= pd.Timestamp(end_date).normalize()
+        frame = frame.loc[valid].copy()
+        dates = dates.loc[valid]
+
+        if frame.empty:
+            return {
+                "rows": 0,
+                "start": None,
+                "end": None,
+                "providers": [],
+                "tradable_rows": 0,
+                "pct_change_coverage": 0.0,
+            }
+
+        if FIELDS.trade_status in frame.columns:
+            status = pd.to_numeric(
+                frame[FIELDS.trade_status], errors="coerce"
+            )
+            tradable = status.eq(1)
+        else:
+            tradable = pd.Series(True, index=frame.index)
+
+        pct_coverage = 0.0
+        if FIELDS.pct_change in frame.columns and bool(tradable.any()):
+            pct = pd.to_numeric(
+                frame.loc[tradable, FIELDS.pct_change],
+                errors="coerce",
+            )
+            pct_coverage = float(pct.notna().mean())
+
+        providers: list[str] = []
+        if FIELDS.provider in frame.columns:
+            providers = sorted(
+                {
+                    str(value).strip()
+                    for value in frame[FIELDS.provider].dropna().tolist()
+                    if str(value).strip()
+                }
+            )
+
+        return {
+            "rows": int(len(frame)),
+            "start": pd.Timestamp(dates.min()).normalize(),
+            "end": pd.Timestamp(dates.max()).normalize(),
+            "providers": providers,
+            "tradable_rows": int(tradable.sum()),
+            "pct_change_coverage": pct_coverage,
+        }
+
     def refresh_catalog(self) -> None:
         """为 none/qfq/hfq 三种标准库建立 DuckDB 视图；无文件的目录自动跳过。"""
         try:
