@@ -5,7 +5,7 @@ import pandas as pd
 
 from aquant.features.relative_strength import add_relative_strength
 from aquant.features.technical import TechnicalFeatureBuilder
-from aquant.research.market_regime import classify_market_regime
+from aquant.research.market_regime import build_market_regime_history, classify_market_regime
 
 
 def _bars(multiplier: float = 1.0) -> pd.DataFrame:
@@ -22,6 +22,30 @@ def _bars(multiplier: float = 1.0) -> pd.DataFrame:
             "amount": np.linspace(12_000_000, 20_000_000, len(dates)),
         }
     )
+
+
+class FakeContext:
+    def index_daily(self, index_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+        dates = pd.bdate_range(pd.Timestamp(start_date), pd.Timestamp(end_date))
+        base = {
+            "sh000001": 3000.0,
+            "sz399001": 10000.0,
+            "sz399006": 2000.0,
+            "sh000300": 4000.0,
+            "sh000852": 6000.0,
+        }.get(index_code, 1000.0)
+        close = np.linspace(base, base * 1.12, len(dates))
+        return pd.DataFrame(
+            {
+                "trade_date": dates,
+                "open": close * 0.998,
+                "high": close * 1.005,
+                "low": close * 0.995,
+                "close": close,
+                "volume": np.full(len(dates), 1_000_000.0),
+                "amount": np.full(len(dates), 1_000_000_000.0),
+            }
+        )
 
 
 def main() -> None:
@@ -57,6 +81,22 @@ def main() -> None:
     mixed = pd.DataFrame({"score": [1.0, 0.0, -0.5, 0.5, -0.5]})
     regime, _, _, _ = classify_market_regime(mixed)
     assert regime == "震荡"
+
+    history = build_market_regime_history(
+        FakeContext(),
+        "2025-06-01",
+        "2025-08-31",
+    )
+    assert not history.empty
+    assert {
+        "trade_date",
+        "market_regime",
+        "market_score",
+        "strong_count",
+        "weak_count",
+        "index_count",
+    }.issubset(set(history.columns))
+    assert history["index_count"].max() == 5
 
     print("OFFLINE_FEATURES_REGIME_OK")
 
