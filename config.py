@@ -41,6 +41,17 @@ class Settings:
     feature_validation_warmup_calendar_days: int = 260
     feature_validation_train_ratio: float = 0.70
 
+    # V2 候选模型 / Walk-Forward。只在研究层验证通过后才允许进入正式评分。
+    v2_max_features: int = 8
+    v2_min_feature_samples: int = 200
+    v2_min_abs_ic: float = 0.02
+    v2_min_abs_return_spread: float = 0.10
+    walk_forward_train_bars: int = 252
+    walk_forward_validation_bars: int = 63
+    walk_forward_gap_bars: int = 5
+    walk_forward_step_bars: int = 63
+    walk_forward_top_quantile: float = 0.20
+
     # 风险/收益参数
     stop_atr_multiple: float = 1.8
     target_atr_multiple: float = 3.0
