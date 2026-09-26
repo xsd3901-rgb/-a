@@ -546,8 +546,14 @@ def run_feature_validation(
                 continue
 
             feat = score_history(hist, benchmark_bars=benchmark)
-            feat = attach_execution_bars(feat, execution)
+            # 未来收益标签必须先在“可交易K线序列”上生成，避免后来插入的
+            # 停牌执行日期改变 5/10/20 日标签的实际跨度。
             feat = add_forward_returns(feat)
+            feat = attach_execution_bars(
+                feat,
+                execution,
+                preserve_execution_dates=True,
+            )
             feat["date"] = pd.to_datetime(
                 feat["date"], errors="coerce"
             ).dt.normalize()
@@ -556,25 +562,29 @@ def run_feature_validation(
                 & (feat["date"] <= market_end)
             ].copy()
 
+            # 停牌/ST 日期要留在执行时间轴供模型对照回测使用，但不能进入
+            # 特征有效性标签样本。将目标置空即可让研究查询自动排除。
+            invalid_sample = pd.Series(False, index=feat.index)
             trade_status_col = (
                 "exec_trade_status"
                 if "exec_trade_status" in feat.columns
                 else "trade_status"
             )
             if trade_status_col in feat.columns:
-                feat = feat[
-                    pd.to_numeric(
-                        feat[trade_status_col], errors="coerce"
-                    ).fillna(1).eq(1)
-                ]
+                status = pd.to_numeric(
+                    feat[trade_status_col], errors="coerce"
+                )
+                invalid_sample |= status.notna() & ~status.eq(1)
 
             st_col = "exec_is_st" if "exec_is_st" in feat.columns else "is_st"
             if SETTINGS.exclude_st and st_col in feat.columns:
-                feat = feat[
-                    ~pd.to_numeric(
-                        feat[st_col], errors="coerce"
-                    ).fillna(0).eq(1)
-                ]
+                st = pd.to_numeric(feat[st_col], errors="coerce")
+                invalid_sample |= st.eq(1)
+
+            for horizon in HORIZONS:
+                target = f"fwd_ret_{horizon}d"
+                if target in feat.columns:
+                    feat.loc[invalid_sample, target] = np.nan
 
             if feat.empty:
                 continue
