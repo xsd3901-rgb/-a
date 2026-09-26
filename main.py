@@ -4,7 +4,6 @@ import argparse
 
 from backtest import run_backtest
 from config import SETTINGS
-from eastmoney_formula import write_formula
 from evaluator import evaluate_trades, metrics_frame
 from optimizer import optimize_parameters
 from profile import load_strategy_profile
@@ -28,7 +27,6 @@ def build_parser() -> argparse.ArgumentParser:
     opt.add_argument("--refresh", action="store_true", help="强制刷新本地缓存")
 
     sub.add_parser("profile", help="查看当前活动策略参数")
-    sub.add_parser("formula", help="生成东方财富参考公式")
     return parser
 
 
@@ -72,10 +70,6 @@ def main() -> None:
         for key, value in load_strategy_profile().items():
             print(f"{key}: {value}")
         return
-
-    if args.command == "formula":
-        path = write_formula()
-        print(f"东方财富公式参考稿已生成: {path}")
 
 
 if __name__ == "__main__":
