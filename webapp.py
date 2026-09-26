@@ -13,6 +13,7 @@ from flask import Flask, jsonify, render_template_string, request
 from aquant.research.feature_selection import build_v2_candidate
 from aquant.research.feature_validation import run_feature_validation
 from aquant.research.model_compare import run_model_comparison
+from aquant.research.system_validation import run_system_validation
 from aquant.research.portfolio import simulate_portfolio
 from aquant.research.walk_forward import run_walk_forward
 from aquant.runtime.resources import current_memory_gb, current_profile
@@ -114,6 +115,18 @@ def _execute_task(job_id: str, action: str, payload: dict) -> None:
             }
         elif action == "compare_models":
             comparison, summary = run_model_comparison(horizon=horizon)
+            result = {
+                "summary": summary,
+                "rows": _records(comparison, 10),
+            }
+        elif action == "validate_system":
+            validate_limit = int(limit or 200)
+            comparison, summary = run_system_validation(
+                feature_limit=validate_limit,
+                backtest_limit=validate_limit,
+                horizon=horizon,
+                refresh=refresh,
+            )
             result = {
                 "summary": summary,
                 "rows": _records(comparison, 10),
@@ -270,6 +283,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1327;padding:12px;b
       <button onclick="runTask('select_features')">生成V2候选</button>
       <button onclick="runTask('walk_forward')">Walk-Forward</button>
       <button onclick="runTask('compare_models')">V1 / V2 对比</button>
+      <button onclick="runTask('validate_system')">一键系统验收</button>
       <button onclick="runTask('optimize')">参数优化</button>
       <button onclick="refreshStatus()">刷新状态</button>
     </div>
@@ -402,6 +416,7 @@ def api_run(action: str):
         "select_features",
         "walk_forward",
         "compare_models",
+        "validate_system",
         "optimize",
     }
     if action not in allowed:
