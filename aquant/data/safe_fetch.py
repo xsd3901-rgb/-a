@@ -2,17 +2,67 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import queue
-from typing import Any
-
 import pandas as pd
 
 
 def _stock_list_worker(source: str, out_queue) -> None:
     try:
         if source == "eastmoney":
-            from aquant.data.providers.eastmoney_akshare import EastMoneyAKShareProvider
+            import akshare as ak
+            from aquant.data.providers.base import normalize_symbol
 
-            frame = EastMoneyAKShareProvider().fetch_stock_list()
+            raw = ak.stock_zh_a_spot_em()
+            if raw is None or raw.empty:
+                frame = pd.DataFrame()
+            else:
+                frame = raw.rename(columns={"代码": "symbol", "名称": "name"})[
+                    ["symbol", "name"]
+                ].copy()
+                frame["symbol"] = frame["symbol"].map(normalize_symbol)
+                frame = frame.drop_duplicates("symbol").reset_index(drop=True)
+
+        elif source == "exchange":
+            import akshare as ak
+            from aquant.data.providers.base import normalize_symbol
+
+            parts: list[pd.DataFrame] = []
+
+            sh_main = ak.stock_info_sh_name_code(symbol="主板A股")
+            if sh_main is not None and not sh_main.empty:
+                temp = sh_main[["证券代码", "证券简称"]].rename(
+                    columns={"证券代码": "symbol", "证券简称": "name"}
+                )
+                parts.append(temp)
+
+            sh_star = ak.stock_info_sh_name_code(symbol="科创板")
+            if sh_star is not None and not sh_star.empty:
+                temp = sh_star[["证券代码", "证券简称"]].rename(
+                    columns={"证券代码": "symbol", "证券简称": "name"}
+                )
+                parts.append(temp)
+
+            sz = ak.stock_info_sz_name_code(symbol="A股列表")
+            if sz is not None and not sz.empty:
+                temp = sz[["A股代码", "A股简称"]].rename(
+                    columns={"A股代码": "symbol", "A股简称": "name"}
+                )
+                parts.append(temp)
+
+            bj = ak.stock_info_bj_name_code()
+            if bj is not None and not bj.empty:
+                temp = bj[["证券代码", "证券简称"]].rename(
+                    columns={"证券代码": "symbol", "证券简称": "name"}
+                )
+                parts.append(temp)
+
+            if not parts:
+                frame = pd.DataFrame()
+            else:
+                frame = pd.concat(parts, ignore_index=True)
+                frame["symbol"] = frame["symbol"].map(normalize_symbol)
+                frame["name"] = frame["name"].astype(str).str.strip()
+                frame = frame.drop_duplicates("symbol").reset_index(drop=True)
+
         elif source == "baostock":
             from aquant.data.providers.baostock_provider import BaoStockProvider
 
