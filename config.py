@@ -15,6 +15,7 @@ class Settings:
 
     # 数据
     history_days: int = 320
+    bootstrap_calendar_days: int = 1300
     cache_hours: int = 18
     adjust: str = "qfq"
     exclude_st: bool = True
