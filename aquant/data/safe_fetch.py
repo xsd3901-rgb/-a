@@ -48,13 +48,6 @@ def _stock_list_worker(source: str, out_queue) -> None:
                 )
                 parts.append(temp)
 
-            bj = ak.stock_info_bj_name_code()
-            if bj is not None and not bj.empty:
-                temp = bj[["证券代码", "证券简称"]].rename(
-                    columns={"证券代码": "symbol", "证券简称": "name"}
-                )
-                parts.append(temp)
-
             if not parts:
                 frame = pd.DataFrame()
             else:
