@@ -317,12 +317,18 @@ def backtest_scored_stock(
         stop_price = entry_price - stop_atr_multiple * execution_atr
         target_price = entry_price + target_atr_multiple * execution_atr
 
+        # 沪深 A 股股票实行 T+1：买入当日不能卖出。
+        first_sell_idx = entry_idx + 1
+        if first_sell_idx >= len(df):
+            break
+
         decision_end_idx = min(entry_idx + max_hold_days - 1, len(df) - 1)
+        decision_end_idx = max(first_sell_idx, decision_end_idx)
         exit_idx: int | None = None
         exit_price: float | None = None
         exit_reason = ""
 
-        for j in range(entry_idx, decision_end_idx + 1):
+        for j in range(first_sell_idx, decision_end_idx + 1):
             day = df.iloc[j]
             exec_day = _execution_row(day)
             age = trading_age(df, j, listing_ts)
