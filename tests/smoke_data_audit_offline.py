@@ -19,6 +19,7 @@ def _bars(code: str, dates: pd.DatetimeIndex) -> pd.DataFrame:
             "high": close * 1.01,
             "low": close * 0.99,
             "close": close,
+            "preclose": np.r_[close[0], close[:-1]],
             "volume": 1_000_000.0,
             "pct_change": np.r_[0.0, np.diff(close) / close[:-1] * 100.0],
             "trade_status": 1,
