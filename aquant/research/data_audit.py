@@ -358,14 +358,31 @@ def run_data_audit(
     reference = ReferenceStore(SETTINGS.data_store_dir)
     lifecycle_store = HistoricalUniverseStore(SETTINGS.data_store_dir)
 
+    lifecycle = lifecycle_store.read()
+    universe_source = "security_lifecycle"
+    if lifecycle is None or lifecycle.empty:
+        # 历史生命周期源暂不可用时，至少用本地当前股票基础库检查
+        # “整只股票文件缺失”。这不等价于历史股票池，但比只检查
+        # 已存在文件更安全。
+        current = reference.read_security_master()
+        if current is not None and not current.empty:
+            lifecycle = current.copy()
+            lifecycle["listing_date"] = pd.NaT
+            lifecycle["delisting_date"] = pd.NaT
+            universe_source = "security_master_fallback"
+        else:
+            lifecycle = pd.DataFrame()
+            universe_source = "files_only"
+
     details, summary = audit_market_store(
         SETTINGS.data_store_dir,
         calendar=reference.read_trade_calendar(),
-        lifecycle=lifecycle_store.read(),
+        lifecycle=lifecycle,
         limit=limit,
         lookback_calendar_days=lookback_calendar_days,
         min_coverage=min_coverage,
     )
+    summary["股票池来源"] = universe_source
 
     details.to_csv(
         SETTINGS.report_dir / "data_audit.csv",
