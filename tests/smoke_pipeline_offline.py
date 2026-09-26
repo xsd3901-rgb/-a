@@ -21,6 +21,8 @@ def make_history() -> pd.DataFrame:
     volume = np.full(len(dates), 1_000_000.0)
     volume[-10:] = np.linspace(1_050_000, 1_450_000, 10)
     amount = volume * close
+    preclose = np.r_[np.nan, close[:-1]]
+    pct_change = np.r_[np.nan, (close[1:] / close[:-1] - 1.0) * 100]
 
     return pd.DataFrame(
         {
@@ -32,6 +34,10 @@ def make_history() -> pd.DataFrame:
             "volume": volume,
             "amount": amount,
             "turnover": np.full(len(dates), 2.0),
+            "preclose": preclose,
+            "pct_change": pct_change,
+            "trade_status": np.ones(len(dates)),
+            "is_st": np.zeros(len(dates)),
         }
     )
 
@@ -68,6 +74,45 @@ class FakeMarketDataService:
             ]
         )
 
+    def historical_securities(self, refresh: bool = False) -> pd.DataFrame:
+        return pd.DataFrame(
+            [
+                {
+                    "code": "600000",
+                    "name": "样本甲",
+                    "listing_date": pd.Timestamp("2000-01-01"),
+                    "delisting_date": pd.NaT,
+                    "market": "SSE",
+                    "board": "sse_main",
+                },
+                {
+                    "code": "000001",
+                    "name": "样本乙",
+                    "listing_date": pd.Timestamp("1991-01-01"),
+                    "delisting_date": pd.NaT,
+                    "market": "SZSE",
+                    "board": "szse_main",
+                },
+            ]
+        )
+
+    def history_range(
+        self,
+        code: str,
+        start_date: str,
+        end_date: str,
+        *,
+        adjust: str | None = None,
+        refresh: bool = False,
+        prefer_point_in_time: bool = False,
+    ) -> pd.DataFrame:
+        frame = self.history(code, refresh=refresh)
+        start = pd.Timestamp(start_date)
+        end = pd.Timestamp(end_date)
+        return frame[
+            (frame["date"] >= start) & (frame["date"] <= end)
+        ].reset_index(drop=True)
+
     def history(self, code: str, refresh: bool = False) -> pd.DataFrame:
         frame = self._history.copy()
         if str(code) == "000001":
@@ -75,14 +120,15 @@ class FakeMarketDataService:
             frame["open"] = frame["open"] * 1.01
             frame["high"] = frame["high"] * 1.01
             frame["low"] = frame["low"] * 1.01
+            frame["preclose"] = frame["preclose"] * 1.01
             frame["amount"] = frame["volume"] * frame["close"]
         return frame
 
 
 def main() -> None:
-    import scanner
     import backtest
     import optimizer
+    import scanner
 
     old_cwd = Path.cwd()
     with TemporaryDirectory() as tmp:
@@ -99,12 +145,18 @@ def main() -> None:
             with (
                 patch.object(scanner, "MarketDataService", FakeMarketDataService),
                 patch.object(scanner, "MarketContextService", FakeMarketContextService),
-                patch.object(scanner, "detect_market_regime", lambda *args, **kwargs: fake_snapshot),
+                patch.object(
+                    scanner,
+                    "detect_market_regime",
+                    lambda *args, **kwargs: fake_snapshot,
+                ),
             ):
                 selected = scanner.scan_market(limit=2, refresh=False)
                 assert isinstance(selected, pd.DataFrame)
                 assert (scanner.SETTINGS.report_dir / "scan_latest.csv").exists()
-                assert (scanner.SETTINGS.report_dir / "market_environment_latest.csv").exists()
+                assert (
+                    scanner.SETTINGS.report_dir / "market_environment_latest.csv"
+                ).exists()
                 if not selected.empty:
                     assert "市场环境" in selected.columns
                     assert set(selected["市场环境"]) == {"偏强"}
@@ -118,12 +170,15 @@ def main() -> None:
                 if not trades.empty:
                     assert "市场环境" in trades.columns
                     assert "环境分" in trades.columns
+                    assert "买入规则" in trades.columns
 
             with patch.object(optimizer, "MarketDataService", FakeMarketDataService):
                 result, best = optimizer.optimize_parameters(limit=2, refresh=False)
                 assert isinstance(result, pd.DataFrame)
                 assert len(result) == 9
-                assert (optimizer.SETTINGS.report_dir / "optimizer_results.csv").exists()
+                assert (
+                    optimizer.SETTINGS.report_dir / "optimizer_results.csv"
+                ).exists()
         finally:
             os.chdir(old_cwd)
 
