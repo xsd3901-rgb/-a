@@ -341,9 +341,15 @@ def run_model_comparison(
     v2_better_portfolio = float(v2_portfolio["组合收益%"]) > float(
         v1_portfolio["组合收益%"]
     )
-    v2_drawdown_ok = float(v2_portfolio["最大账面成本回撤%"]) <= max(
+    v1_drawdown = float(
+        v1_portfolio.get("最大盯市回撤%", v1_portfolio["最大账面成本回撤%"])
+    )
+    v2_drawdown = float(
+        v2_portfolio.get("最大盯市回撤%", v2_portfolio["最大账面成本回撤%"])
+    )
+    v2_drawdown_ok = v2_drawdown <= max(
         5.0,
-        float(v1_portfolio["最大账面成本回撤%"]) * 1.10,
+        v1_drawdown * 1.10,
     )
     if (
         v2_trade_n >= 30
@@ -369,8 +375,10 @@ def run_model_comparison(
         "V2平均收益%": float(v2_metrics["平均收益%"]),
         "V1组合收益%": float(v1_portfolio["组合收益%"]),
         "V2组合收益%": float(v2_portfolio["组合收益%"]),
-        "V1组合回撤%": float(v1_portfolio["最大账面成本回撤%"]),
-        "V2组合回撤%": float(v2_portfolio["最大账面成本回撤%"]),
+        "V1组合回撤%": v1_drawdown,
+        "V2组合回撤%": v2_drawdown,
+        "V1盯市覆盖率%": float(v1_portfolio.get("盯市覆盖率%", 0.0)),
+        "V2盯市覆盖率%": float(v2_portfolio.get("盯市覆盖率%", 0.0)),
     }
 
     v1_trades.to_csv(
