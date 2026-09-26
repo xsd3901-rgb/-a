@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 
 from backtest import run_backtest
+from config import SETTINGS
 from eastmoney_formula import write_formula
 from evaluator import evaluate_trades, metrics_frame
+from optimizer import optimize_parameters
+from profile import load_strategy_profile
 from scanner import scan_market
-from config import SETTINGS
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,6 +23,11 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--limit", type=int, default=None, help="仅回测前N只；不填则回测全部")
     bt.add_argument("--refresh", action="store_true", help="强制刷新本地缓存")
 
+    opt = sub.add_parser("optimize", help="训练/验证分段的受控参数优化")
+    opt.add_argument("--limit", type=int, default=100, help="优化样本股票数，默认100")
+    opt.add_argument("--refresh", action="store_true", help="强制刷新本地缓存")
+
+    sub.add_parser("profile", help="查看当前活动策略参数")
     sub.add_parser("formula", help="生成东方财富参考公式")
     return parser
 
@@ -46,6 +53,23 @@ def main() -> None:
         )
         print("\n回测统计：")
         for key, value in metrics.items():
+            print(f"{key}: {value}")
+        return
+
+    if args.command == "optimize":
+        result, best = optimize_parameters(limit=args.limit, refresh=args.refresh)
+        print(result.to_string(index=False))
+        if best:
+            print("\n已通过样本外基础检查并更新活动参数：")
+            for key, value in best.items():
+                print(f"{key}: {value}")
+        else:
+            print("\n没有候选参数通过稳健性检查，活动参数保持不变。")
+        return
+
+    if args.command == "profile":
+        print("当前活动策略参数：")
+        for key, value in load_strategy_profile().items():
             print(f"{key}: {value}")
         return
 
