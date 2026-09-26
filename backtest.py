@@ -124,11 +124,21 @@ def _historical_universe(
         if stocks.empty:
             raise RuntimeError("历史股票池为空")
 
+        listing = (
+            stocks["listing_date"]
+            if "listing_date" in stocks.columns
+            else pd.Series(pd.NaT, index=stocks.index)
+        )
+        delisting = (
+            stocks["delisting_date"]
+            if "delisting_date" in stocks.columns
+            else pd.Series(pd.NaT, index=stocks.index)
+        )
         stocks["listing_date"] = pd.to_datetime(
-            stocks.get("listing_date"), errors="coerce"
+            listing, errors="coerce"
         ).dt.normalize()
         stocks["delisting_date"] = pd.to_datetime(
-            stocks.get("delisting_date"), errors="coerce"
+            delisting, errors="coerce"
         ).dt.normalize()
 
         listed = stocks["listing_date"].isna() | (stocks["listing_date"] <= end_date)
