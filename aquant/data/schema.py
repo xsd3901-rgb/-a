@@ -14,11 +14,16 @@ class MarketDataContract:
     high: str = "high"
     low: str = "low"
     close: str = "close"
-    volume: str = "volume"
-    amount: str = "amount"
-    turnover: str = "turnover"
+    volume: str = "volume"          # 统一单位：股
+    amount: str = "amount"          # 统一单位：人民币元
+    turnover: str = "turnover"      # 统一单位：%
     adj_factor: str = "adj_factor"
-    source: str = "source"
+
+    # 来源元数据：真实数据提供方和 Python 适配器分开记录。
+    provider: str = "provider"
+    adapter: str = "adapter"
+    adjustment: str = "adjustment"  # none / qfq / hfq
+
     fetched_at: str = "fetched_at"
     data_version: str = "data_version"
     quality_status: str = "quality_status"
@@ -43,7 +48,9 @@ OPTIONAL_BAR_COLUMNS: Final[tuple[str, ...]] = (
 )
 
 META_COLUMNS: Final[tuple[str, ...]] = (
-    FIELDS.source,
+    FIELDS.provider,
+    FIELDS.adapter,
+    FIELDS.adjustment,
     FIELDS.fetched_at,
     FIELDS.data_version,
     FIELDS.quality_status,
