@@ -331,7 +331,7 @@ class MarketDataService:
                 sample = pct
             coverage = float(sample.notna().mean()) if len(sample) else 0.0
 
-        if coverage >= 0.70:
+        if coverage >= 0.95:
             signal = build_point_in_time_continuous(execution)
             return signal, execution
 
