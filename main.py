@@ -103,6 +103,8 @@ def main() -> None:
         print("\n汇总：")
         for key, value in summary.items():
             print(f"{key}: {value}")
+        if summary.get("总体状态") != "首次准备完成":
+            raise SystemExit(2)
         return
 
     if args.command == "readiness":
