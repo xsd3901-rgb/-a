@@ -7,6 +7,7 @@ import pandas as pd
 
 from config import SETTINGS
 from indicators import add_indicators
+from profile import load_strategy_profile
 
 
 @dataclass
@@ -45,8 +46,9 @@ def score_history(df: pd.DataFrame) -> pd.DataFrame:
     score -= np.where(out["atr_pct"] > 9, 10, 0)
     score -= np.where(out["ret_5d"] > 25, 10, 0)
 
+    profile = load_strategy_profile()
     out["score"] = score.clip(0, 100).round().astype("Int64")
-    out["signal"] = out["score"] >= SETTINGS.score_threshold
+    out["signal"] = out["score"] >= int(profile["score_threshold"])
     return out
 
 
@@ -72,10 +74,11 @@ def evaluate_latest(df: pd.DataFrame) -> Signal:
     if row["position_20"] >= 0.94:
         reasons.append("接近20日强势区")
 
+    profile = load_strategy_profile()
     atr = float(row["atr14"]) if pd.notna(row["atr14"]) else float(row["close"] * 0.03)
     close = float(row["close"])
-    stop = max(0.01, close - SETTINGS.stop_atr_multiple * atr)
-    target = close + SETTINGS.target_atr_multiple * atr
+    stop = max(0.01, close - float(profile["stop_atr_multiple"]) * atr)
+    target = close + float(profile["target_atr_multiple"]) * atr
     atr_pct = float(row["atr_pct"]) if pd.notna(row["atr_pct"]) else 0.0
 
     if atr_pct >= 7 or row["rsi6"] >= 82:
