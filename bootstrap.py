@@ -58,6 +58,19 @@ def _bootstrap_universe(
         return stocks
 
 
+def _stats_provider_label(stats: dict) -> str:
+    providers = [
+        str(value).strip()
+        for value in (stats.get("providers") or [])
+        if str(value).strip()
+    ]
+    if not providers:
+        return "local/unknown"
+    if len(providers) == 1:
+        return providers[0]
+    return "mixed:" + "+".join(sorted(set(providers)))
+
+
 def _provider_label(frame: pd.DataFrame | None) -> str:
     if frame is None or frame.empty or "provider" not in frame.columns:
         return "local/unknown"
@@ -131,13 +144,15 @@ def _bootstrap_one(
             # 每个线程独立数据服务；底层按数据源加闸门，BaoStock 串行，
             # EastMoney 最多双并发，避免免费接口被并发打爆。
             provider = MarketDataService()
-            signal, raw = provider.research_history_range(
+            raw_stats = provider.sync_history_range(
                 code,
                 stock_start.strftime("%Y-%m-%d"),
                 stock_end.strftime("%Y-%m-%d"),
+                adjust="none",
                 refresh=refresh,
+                prefer_point_in_time=True,
             )
-            qfq = provider.history_range(
+            qfq_stats = provider.sync_history_range(
                 code,
                 stock_start.strftime("%Y-%m-%d"),
                 stock_end.strftime("%Y-%m-%d"),
@@ -145,24 +160,33 @@ def _bootstrap_one(
                 refresh=refresh,
                 prefer_point_in_time=False,
             )
-            signal_mode = (
-                str(signal["signal_price_mode"].dropna().iloc[-1])
-                if (
-                    not signal.empty
-                    and "signal_price_mode" in signal.columns
-                    and signal["signal_price_mode"].notna().any()
-                )
-                else "unknown"
+
+            pct_coverage = float(
+                raw_stats.get("pct_change_coverage", 0.0) or 0.0
             )
+            if pct_coverage >= 0.95:
+                signal_mode = "point_in_time_continuous"
+                signal_rows = int(raw_stats.get("tradable_rows", 0))
+            else:
+                signal_mode = "qfq_fallback"
+                signal_rows = int(qfq_stats.get("rows", 0))
+
             return (
                 {
                     **base,
-                    "Raw根数": len(raw),
-                    "连续研究价根数": len(signal),
-                    "QFQ根数": len(qfq),
-                    "Raw来源": _provider_label(raw),
-                    "QFQ来源": _provider_label(qfq),
+                    "Raw根数": int(raw_stats.get("rows", 0)),
+                    "连续研究价根数": signal_rows,
+                    "QFQ根数": int(qfq_stats.get("rows", 0)),
+                    "Raw来源": _stats_provider_label(raw_stats),
+                    "QFQ来源": _stats_provider_label(qfq_stats),
                     "信号价格模式": signal_mode,
+                    "Raw涨跌幅覆盖率%": round(pct_coverage * 100.0, 2),
+                    "Raw本次下载区间": len(
+                        raw_stats.get("fetched_segments") or []
+                    ),
+                    "QFQ本次下载区间": len(
+                        qfq_stats.get("fetched_segments") or []
+                    ),
                     "尝试次数": attempt,
                     "状态": "OK",
                 },
