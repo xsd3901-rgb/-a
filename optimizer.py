@@ -112,20 +112,11 @@ def optimize_parameters(
             continue
 
         try:
-            hist = provider.history_range(
+            hist, execution = provider.research_history_range(
                 code,
                 stock_start.strftime("%Y-%m-%d"),
                 stock_end.strftime("%Y-%m-%d"),
                 refresh=refresh,
-                prefer_point_in_time=True,
-            )
-            execution = provider.history_range(
-                code,
-                stock_start.strftime("%Y-%m-%d"),
-                stock_end.strftime("%Y-%m-%d"),
-                adjust="none",
-                refresh=False,
-                prefer_point_in_time=True,
             )
             if len(hist) < SETTINGS.min_bars + 60:
                 continue
