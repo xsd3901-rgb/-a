@@ -5,15 +5,17 @@ from datetime import datetime
 
 import pandas as pd
 
+from aquant.data.service import MarketDataService
+from aquant.runtime.resources import current_profile
 from config import SETTINGS, ensure_directories
-from data import FreeAStockData
 from profile import load_strategy_profile
 from strategy import evaluate_latest
 
 
 def scan_market(limit: int | None = None, refresh: bool = False) -> pd.DataFrame:
     ensure_directories()
-    provider = FreeAStockData()
+    provider = MarketDataService()
+    runtime = current_profile()
     profile = load_strategy_profile()
     score_threshold = int(profile["score_threshold"])
     stocks = provider.stock_list()
@@ -23,7 +25,13 @@ def scan_market(limit: int | None = None, refresh: bool = False) -> pd.DataFrame
     results: list[dict] = []
     errors: list[dict] = []
     total = len(stocks)
+    flush_every = max(1, runtime.batch_size)
     partial_path = SETTINGS.report_dir / "scan_partial.csv"
+
+    print(
+        f"资源档位: {runtime.name} | 批次 {runtime.batch_size} | "
+        f"下载并发上限 {runtime.download_workers} | 计算并发上限 {runtime.compute_workers}"
+    )
 
     for i, row in stocks.iterrows():
         code, name = str(row["code"]), str(row["name"])
@@ -50,7 +58,7 @@ def scan_market(limit: int | None = None, refresh: bool = False) -> pd.DataFrame
         except Exception as exc:
             errors.append({"代码": code, "名称": name, "错误": str(exc)[:300]})
         finally:
-            if (i + 1) % SETTINGS.flush_every == 0:
+            if (i + 1) % flush_every == 0:
                 if results:
                     pd.DataFrame(results).to_csv(partial_path, index=False, encoding="utf-8-sig")
                 print(f"扫描进度 {i + 1}/{total}，当前入选 {len(results)}，失败 {len(errors)}")
