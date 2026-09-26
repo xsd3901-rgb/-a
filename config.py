@@ -36,6 +36,11 @@ class Settings:
     backtest_calendar_days: int = 540
     backtest_warmup_calendar_days: int = 260
 
+    # 特征有效性研究窗口：先验证再决定是否进入正式评分。
+    feature_validation_calendar_days: int = 900
+    feature_validation_warmup_calendar_days: int = 260
+    feature_validation_train_ratio: float = 0.70
+
     # 风险/收益参数
     stop_atr_multiple: float = 1.8
     target_atr_multiple: float = 3.0
