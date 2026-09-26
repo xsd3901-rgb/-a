@@ -1,0 +1,43 @@
+name: A-Quant Smoke Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "aquant/**"
+      - "scanner.py"
+      - "backtest.py"
+      - "optimizer.py"
+      - "diagnose.py"
+      - "config.py"
+      - "requirements.txt"
+      - ".github/workflows/smoke.yml"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile project
+        run: python -m compileall -q .
+      - name: Import core modules
+        run: |
+          python - <<'PY'
+          from aquant.data.service import MarketDataService
+          from aquant.data.reference import ReferenceStore
+          from aquant.runtime.resources import current_profile
+          MarketDataService()
+          ReferenceStore()
+          print(current_profile())
+          print("core imports ok")
+          PY
+      - name: End-to-end data diagnosis
+        run: python diagnose.py
