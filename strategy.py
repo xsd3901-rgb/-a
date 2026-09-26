@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from aquant.features.pipeline import FeaturePipeline
+from aquant.risk.daily import DEFAULT_DAILY_RISK_FILTER
 from config import SETTINGS
 from profile import load_strategy_profile
 
@@ -20,6 +21,8 @@ class Signal:
     target: float
     atr_pct: float
     rs20: float | None = None
+    allowed: bool = True
+    risk_reasons: str = ""
 
 
 def score_history(
@@ -59,6 +62,8 @@ def score_history(
 def evaluate_latest(
     df: pd.DataFrame,
     benchmark_bars: pd.DataFrame | None = None,
+    *,
+    fallback_name: str = "",
 ) -> Signal:
     scored = score_history(df, benchmark_bars=benchmark_bars)
     if len(scored) < SETTINGS.min_bars:
@@ -103,6 +108,15 @@ def evaluate_latest(
         elif rs20 < -5:
             reasons.append("20日弱于沪深300")
 
+    risk_decision = DEFAULT_DAILY_RISK_FILTER.evaluate(
+        row,
+        fallback_name=fallback_name,
+    )
+    if risk_decision.level == "高":
+        risk = "高"
+    elif risk_decision.level == "中" and risk == "低":
+        risk = "中"
+
     return Signal(
         score=score,
         reasons="、".join(reasons) or "信号不足",
@@ -112,4 +126,6 @@ def evaluate_latest(
         target=round(target, 3),
         atr_pct=round(atr_pct, 2),
         rs20=rs20,
+        allowed=risk_decision.allowed,
+        risk_reasons="、".join(risk_decision.reasons),
     )
