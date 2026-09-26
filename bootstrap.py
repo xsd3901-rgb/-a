@@ -230,6 +230,7 @@ def bootstrap_market(
     refresh: bool = False,
     calendar_days: int | None = None,
     progress: Callable[[str], None] | None = None,
+    codes: list[str] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """建立/增量补齐沪深 A 股本地研究库。
 
@@ -259,6 +260,11 @@ def bootstrap_market(
         market_end,
         refresh=refresh,
     )
+    if codes:
+        wanted = {str(code).zfill(6) for code in codes}
+        stocks = stocks[
+            stocks["code"].astype(str).str.zfill(6).isin(wanted)
+        ].copy()
     if limit and limit > 0:
         stocks = stocks.head(limit)
     stocks = stocks.reset_index(drop=True)
@@ -271,7 +277,7 @@ def bootstrap_market(
         SETTINGS.report_dir / "bootstrap_checkpoint.json",
         signature,
     )
-    if refresh or not bool(SETTINGS.bootstrap_resume):
+    if (refresh and not codes) or not bool(SETTINGS.bootstrap_resume):
         checkpoint.clear()
 
     rows: list[dict] = []
@@ -442,6 +448,7 @@ def bootstrap_market(
         "开始日期": start_date.strftime("%Y-%m-%d"),
         "结束日期": market_end.strftime("%Y-%m-%d"),
         "股票池": int(len(stocks)),
+        "定向修复": bool(codes),
         "成功股票": ok_count,
         "本次实际处理": int(len(pending)),
         "断点跳过": int(resumed),
