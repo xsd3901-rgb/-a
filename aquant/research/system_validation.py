@@ -6,6 +6,7 @@ from datetime import datetime
 import pandas as pd
 
 from aquant.research.feature_selection import build_v2_candidate
+from aquant.research.data_audit import run_data_audit
 from aquant.research.feature_validation import run_feature_validation
 from aquant.research.model_compare import run_model_comparison
 from aquant.research.portfolio import simulate_portfolio
@@ -40,6 +41,25 @@ def run_system_validation(
                 "时间": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
         )
+
+    try:
+        audit_details, audit_summary = run_data_audit(limit=backtest_limit)
+        audit_state = str(audit_summary.get("状态", ""))
+        audit_ok = audit_state in {"通过", "可用但有警告"}
+        record(
+            "本地数据审计",
+            "OK" if audit_ok else "FAILED",
+            f"{audit_state} | 检查 {audit_summary.get('检查股票数', 0)} 只 | "
+            f"FAIL {audit_summary.get('FAIL', 0)}",
+        )
+        if not audit_ok:
+            raise RuntimeError(
+                "本地行情完整性未通过，请先执行 bootstrap/修复后再验收。"
+            )
+    except Exception as exc:
+        if not rows or rows[-1]["步骤"] != "本地数据审计":
+            record("本地数据审计", "FAILED", str(exc))
+        raise
 
     try:
         features = run_feature_validation(
