@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from backtest import backtest_scored_stock
+from backtest import attach_execution_bars, backtest_scored_stock
 
 
 def base_scored() -> pd.DataFrame:
@@ -89,6 +89,37 @@ def main() -> None:
     suspended = base_scored()
     suspended.loc[120, "trade_status"] = 0
     assert run_case(suspended) == []
+
+    # 即使技术信号序列本身没有停牌K线，attach_execution_bars 也必须
+    # 把执行层的停牌日期插回时间轴，防止信号“跨过停牌日”直接成交。
+    full = base_scored()
+    execution = full[
+        [
+            "date", "open", "high", "low", "close", "preclose",
+            "volume", "amount", "turnover", "pct_change",
+            "trade_status", "is_st",
+        ]
+    ].copy()
+    execution.loc[120, "trade_status"] = 0
+    execution.loc[120, ["open", "high", "low", "close"]] = np.nan
+    signal_only = full.drop(index=120).reset_index(drop=True)
+    merged = attach_execution_bars(signal_only, execution)
+    suspension_date = pd.Timestamp(full.loc[120, "date"])
+    inserted = merged[pd.to_datetime(merged["date"]) == suspension_date]
+    assert len(inserted) == 1
+    assert int(inserted.iloc[0]["exec_trade_status"]) == 0
+    trades = backtest_scored_stock(
+        code="600001",
+        name="样本主板",
+        scored=merged,
+        score_threshold=68,
+        stop_atr_multiple=1.8,
+        target_atr_multiple=3.0,
+        max_hold_days=2,
+        listing_date="2010-01-01",
+        signal_start_date="2025-01-01",
+    )
+    assert trades == []
 
     print("OFFLINE_EXECUTION_RULES_OK")
 
