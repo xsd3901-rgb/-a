@@ -222,23 +222,40 @@ def audit_market_store(
 
         window_mask = frame["_date"].isin(observed_window)
 
-        def field_coverage(column: str) -> float:
-            if column not in frame.columns or not bool(window_mask.any()):
+        def field_coverage(
+            column: str,
+            mask: pd.Series | None = None,
+        ) -> float:
+            use_mask = window_mask if mask is None else mask
+            if column not in frame.columns or not bool(use_mask.any()):
                 return 0.0
             return float(
                 pd.to_numeric(
-                    frame.loc[window_mask, column],
+                    frame.loc[use_mask, column],
                     errors="coerce",
                 ).notna().mean()
             )
+
+        if FIELDS.trade_status in frame.columns:
+            status_values = pd.to_numeric(
+                frame[FIELDS.trade_status], errors="coerce"
+            )
+            tradable_window_mask = window_mask & status_values.eq(1)
+        else:
+            tradable_window_mask = window_mask
 
         pct_col = (
             FIELDS.pct_change
             if FIELDS.pct_change in frame.columns
             else "pct_change"
         )
-        pct_coverage = field_coverage(pct_col)
-        preclose_coverage = field_coverage(FIELDS.preclose)
+        # 涨跌幅/昨收只要求在可交易行完整；停牌行可以没有价格字段。
+        pct_coverage = field_coverage(pct_col, tradable_window_mask)
+        preclose_coverage = field_coverage(
+            FIELDS.preclose,
+            tradable_window_mask,
+        )
+        # 交易状态与历史 ST 是点时执行风控字段，要求整个观察时间轴可见。
         trade_status_coverage = field_coverage(FIELDS.trade_status)
         is_st_coverage = field_coverage(FIELDS.is_st)
 
