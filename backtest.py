@@ -8,6 +8,7 @@ from aquant.data.context_service import MarketContextService
 from aquant.data.service import MarketDataService
 from aquant.research.market_regime import build_market_regime_history
 from aquant.risk.costs import AShareCostModel
+from aquant.risk.daily import DEFAULT_DAILY_RISK_FILTER
 from aquant.risk.trading_rules import (
     historical_is_st,
     is_tradable_bar,
@@ -268,7 +269,18 @@ def backtest_scored_stock(
                 i += 1
                 continue
 
-        if SETTINGS.exclude_st and historical_is_st(signal_row, name):
+        if SETTINGS.exclude_st and historical_is_st(
+            _execution_row(signal_row),
+            name,
+        ):
+            i += 1
+            continue
+
+        risk_decision = DEFAULT_DAILY_RISK_FILTER.evaluate(
+            _execution_row(signal_row),
+            fallback_name=name,
+        )
+        if not risk_decision.allowed:
             i += 1
             continue
 
