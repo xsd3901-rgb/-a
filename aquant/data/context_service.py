@@ -38,7 +38,7 @@ class MarketContextService:
         if not force and not local.empty and self._fresh(self.store.industry_path, max_age_hours):
             return local
         try:
-            remote = fetch_industry_map_with_timeout(timeout_seconds=20.0)
+            remote = fetch_industry_map_with_timeout(timeout_seconds=35.0)
             if remote is not None and not remote.empty:
                 self.store.save_industry_map(remote)
                 self.store.refresh_catalog()
@@ -77,7 +77,7 @@ class MarketContextService:
                         index_symbol=provider_symbol,
                         start_date=fetch_start,
                         end_date=end_date,
-                        timeout_seconds=15.0,
+                        timeout_seconds=20.0 if source == "akshare" else 35.0,
                     )
                     if remote is not None and not remote.empty:
                         self.store.save_index_daily(index_code, index_name, remote)
