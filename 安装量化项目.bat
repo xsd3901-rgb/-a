@@ -24,7 +24,7 @@ echo - 不删除已有 data_store / reports；
 echo - 安装完成后自动进入“首次运行向导”。
 echo.
 
-if exist "%~dp0main.py" if exist "%~dp0webapp.py" if exist "%~dp0aquant" goto PROJECT_READY
+if exist "%~dp0main.py" if exist "%~dp0webapp.py" if exist "%~dp0requirements.txt" if exist "%~dp0aquant" if exist "%~dp0首次运行.bat" goto PROJECT_READY
 
 set "TMPROOT=%TEMP%\aquant_install_%RANDOM%%RANDOM%"
 set "ZIPFILE=%TMPROOT%\project.zip"
