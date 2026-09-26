@@ -75,17 +75,7 @@ class FakeMarketDataService:
             ]
         )
 
-    def research_history_range(
-        self,
-        code: str,
-        start_date: str,
-        end_date: str,
-        refresh: bool = False,
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        type(self).fetch_count += 1
-        return _history(code)
-
-    def history_range(
+    def sync_history_range(
         self,
         code: str,
         start_date: str,
@@ -94,11 +84,23 @@ class FakeMarketDataService:
         adjust: str | None = None,
         refresh: bool = False,
         prefer_point_in_time: bool = False,
-    ) -> pd.DataFrame:
-        signal, raw = _history(code)
-        qfq = raw.copy()
-        qfq["provider"] = "eastmoney"
-        return qfq
+    ) -> dict:
+        if adjust == "none":
+            type(self).fetch_count += 1
+            return {
+                "rows": 8,
+                "tradable_rows": 8,
+                "pct_change_coverage": 1.0,
+                "providers": ["baostock"],
+                "fetched_segments": [(start_date, end_date)],
+            }
+        return {
+            "rows": 8,
+            "tradable_rows": 8,
+            "pct_change_coverage": 1.0,
+            "providers": ["eastmoney"],
+            "fetched_segments": [(start_date, end_date)],
+        }
 
     def refresh_catalog(self) -> None:
         return None
