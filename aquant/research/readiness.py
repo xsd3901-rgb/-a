@@ -8,6 +8,7 @@ import pandas as pd
 
 from aquant.models.registry import model_status
 from aquant.research.data_audit import run_data_audit
+from aquant.version import __version__
 from config import SETTINGS, ensure_directories
 
 
@@ -183,6 +184,7 @@ def release_readiness(
         )
 
     summary = {
+        "版本": __version__,
         "总体状态": overall,
         "下一步": next_action,
         "项目目录": str(SETTINGS.project_root),
