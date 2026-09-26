@@ -11,6 +11,55 @@ class BaoStockProvider(DailyBarProvider):
 
     info = ProviderInfo(provider="baostock", adapter="baostock-python", volume_unit="share")
 
+    def fetch_stock_list(self) -> pd.DataFrame:
+        """BaoStock 股票基础列表备用源。
+
+        BaoStock 的证券基础资料包含指数、股票、基金等，这里只保留正常上市股票。
+        北京证券交易所覆盖能力不足，因此它主要作为沪深市场的独立降级源。
+        """
+        try:
+            import baostock as bs
+        except ImportError as exc:
+            raise RuntimeError("缺少 baostock 依赖，请先安装 requirements.txt") from exc
+
+        login = bs.login()
+        if getattr(login, "error_code", "-1") != "0":
+            raise RuntimeError(f"BaoStock 登录失败: {login.error_code} {login.error_msg}")
+
+        try:
+            rs = bs.query_stock_basic()
+            if rs.error_code != "0":
+                raise RuntimeError(f"BaoStock 股票基础资料获取失败: {rs.error_code} {rs.error_msg}")
+
+            rows: list[list[str]] = []
+            while rs.next():
+                rows.append(rs.get_row_data())
+            raw = pd.DataFrame(rows, columns=rs.fields)
+        finally:
+            bs.logout()
+
+        if raw.empty:
+            return pd.DataFrame(columns=["symbol", "name"])
+
+        code_col = "code"
+        name_col = "code_name"
+        if code_col not in raw.columns or name_col not in raw.columns:
+            raise RuntimeError(f"BaoStock 股票基础资料字段异常: {list(raw.columns)}")
+
+        if "type" in raw.columns:
+            raw = raw[raw["type"].astype(str).eq("1")]
+        if "status" in raw.columns:
+            raw = raw[raw["status"].astype(str).eq("1")]
+
+        out = pd.DataFrame(
+            {
+                "symbol": raw[code_col].map(normalize_symbol),
+                "name": raw[name_col].astype(str).str.strip(),
+            }
+        )
+        out = out[out["symbol"].str.match(r"^(0|2|3|6|9)\d{5}$", na=False)]
+        return out.drop_duplicates("symbol").reset_index(drop=True)
+
     def fetch_daily(
         self,
         symbol: str,
