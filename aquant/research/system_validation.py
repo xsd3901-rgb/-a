@@ -45,7 +45,10 @@ def run_system_validation(
     try:
         audit_details, audit_summary = run_data_audit(limit=backtest_limit)
         audit_state = str(audit_summary.get("状态", ""))
-        audit_ok = audit_state in {"通过", "可用但有警告"}
+        audit_ok = (
+            audit_state in {"通过", "可用但有警告"}
+            and audit_summary.get("股票池来源") == "security_lifecycle"
+        )
         record(
             "本地数据审计",
             "OK" if audit_ok else "FAILED",
