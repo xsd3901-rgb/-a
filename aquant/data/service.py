@@ -32,14 +32,14 @@ class MarketDataService:
         errors: list[str] = []
         try:
             df = self.reference.stock_list(
-                fetcher=lambda: fetch_stock_list_with_timeout("eastmoney", 12.0),
+                fetcher=lambda: fetch_stock_list_with_timeout("eastmoney", 20.0),
                 max_age_hours=float(SETTINGS.cache_hours),
             )
         except Exception as exc:
             errors.append(f"eastmoney/akshare: {exc}")
             try:
                 df = self.reference.stock_list(
-                    fetcher=lambda: fetch_stock_list_with_timeout("baostock", 15.0),
+                    fetcher=lambda: fetch_stock_list_with_timeout("baostock", 35.0),
                     max_age_hours=float(SETTINGS.cache_hours),
                     force=True,
                 )
