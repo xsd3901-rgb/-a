@@ -43,6 +43,7 @@ def main() -> None:
                 "检查股票数": 100,
                 "FAIL": 0,
                 "覆盖率中位数%": 99.8,
+                "股票池来源": "security_lifecycle",
             },
         )
         local_prepare.run_system_validation = lambda **kwargs: (
