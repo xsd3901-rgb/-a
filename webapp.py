@@ -17,6 +17,7 @@ from aquant.research.portfolio import simulate_portfolio
 from aquant.research.walk_forward import run_walk_forward
 from aquant.runtime.resources import current_memory_gb, current_profile
 from backtest import run_backtest
+from bootstrap import bootstrap_market
 from config import SETTINGS, ensure_directories
 from evaluator import evaluate_by_market_regime, evaluate_trades
 from optimizer import optimize_parameters
@@ -62,7 +63,16 @@ def _execute_task(job_id: str, action: str, payload: dict) -> None:
         refresh = bool(payload.get("refresh", False))
         horizon = int(payload.get("horizon") or 10)
 
-        if action == "scan":
+        if action == "bootstrap":
+            status_frame, summary = bootstrap_market(
+                limit=limit,
+                refresh=refresh,
+            )
+            result = {
+                "summary": summary,
+                "rows": _records(status_frame.tail(100), 100),
+            }
+        elif action == "scan":
             frame = scan_market(limit=limit, refresh=refresh)
             result = {
                 "summary": {"入选数量": len(frame)},
@@ -253,6 +263,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1327;padding:12px;b
       <label><input id="refresh" type="checkbox"> 强制刷新</label>
     </div>
     <div class="controls" style="margin-top:12px">
+      <button class="primary" onclick="runTask('bootstrap')">建立/更新本地数据库</button>
       <button class="primary" onclick="runTask('scan')">全市场扫描</button>
       <button onclick="runTask('backtest')">V1真实成交回测</button>
       <button onclick="runTask('features')">特征有效性</button>
@@ -384,6 +395,7 @@ def api_status():
 @app.post("/api/run/<action>")
 def api_run(action: str):
     allowed = {
+        "bootstrap",
         "scan",
         "backtest",
         "features",
