@@ -48,6 +48,8 @@ jobs:
           PY
       - name: Offline data layer smoke test
         run: PYTHONPATH=. python tests/smoke_data_offline.py
+      - name: Offline pipeline smoke test
+        run: PYTHONPATH=. python tests/smoke_pipeline_offline.py
       - name: Live free-data probe
         continue-on-error: true
         timeout-minutes: 4
