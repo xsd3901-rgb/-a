@@ -14,6 +14,7 @@ from aquant.research.feature_selection import build_v2_candidate
 from aquant.research.feature_validation import run_feature_validation
 from aquant.research.model_compare import run_model_comparison
 from aquant.research.system_validation import run_system_validation
+from aquant.research.stock_detail import stock_detail
 from aquant.research.portfolio import simulate_portfolio
 from aquant.research.walk_forward import run_walk_forward
 from aquant.runtime.resources import current_memory_gb, current_profile
@@ -21,6 +22,7 @@ from backtest import run_backtest
 from bootstrap import bootstrap_market
 from config import SETTINGS, ensure_directories
 from evaluator import evaluate_by_market_regime, evaluate_trades
+from eastmoney_formula import write_formula
 from optimizer import optimize_parameters
 from profile import load_strategy_profile
 from scanner import scan_market
@@ -64,7 +66,28 @@ def _execute_task(job_id: str, action: str, payload: dict) -> None:
         refresh = bool(payload.get("refresh", False))
         horizon = int(payload.get("horizon") or 10)
 
-        if action == "bootstrap":
+        if action == "stock_detail":
+            code = str(payload.get("code") or "").strip()
+            if not code:
+                raise ValueError("请输入股票代码")
+            stock_summary, recent = stock_detail(
+                code,
+                refresh=refresh,
+            )
+            result = {
+                "summary": stock_summary,
+                "rows": _records(recent, 60),
+            }
+        elif action == "formula":
+            path = write_formula()
+            result = {
+                "summary": {
+                    "状态": "已导出",
+                    "文件": path,
+                    "说明": "东方财富公式是 V1 参考版；ST、停牌和历史交易制度仍以本地系统为准。",
+                }
+            }
+        elif action == "bootstrap":
             status_frame, summary = bootstrap_market(
                 limit=limit,
                 refresh=refresh,
@@ -273,11 +296,13 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1327;padding:12px;b
       <label>预测窗
         <select id="horizon"><option>5</option><option selected>10</option><option>20</option></select>
       </label>
+      <label>单股代码 <input id="stockCode" type="text" maxlength="6" placeholder="例如600000"></label>
       <label><input id="refresh" type="checkbox"> 强制刷新</label>
     </div>
     <div class="controls" style="margin-top:12px">
       <button class="primary" onclick="runTask('bootstrap')">建立/更新本地数据库</button>
       <button class="primary" onclick="runTask('scan')">全市场扫描</button>
+      <button onclick="runTask('stock_detail')">查看单股详情</button>
       <button onclick="runTask('backtest')">V1真实成交回测</button>
       <button onclick="runTask('features')">特征有效性</button>
       <button onclick="runTask('select_features')">生成V2候选</button>
@@ -285,6 +310,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1327;padding:12px;b
       <button onclick="runTask('compare_models')">V1 / V2 对比</button>
       <button onclick="runTask('validate_system')">一键系统验收</button>
       <button onclick="runTask('optimize')">参数优化</button>
+      <button onclick="runTask('formula')">导出东财公式</button>
       <button onclick="refreshStatus()">刷新状态</button>
     </div>
     <div id="status" class="status">就绪。</div>
@@ -316,7 +342,7 @@ function table(rows){
 function pretty(o){return '<pre>'+esc(JSON.stringify(o,null,2))+'</pre>'}
 function payload(){
   let raw=$('limit').value.trim();
-  return {limit:raw===''?null:Number(raw),refresh:$('refresh').checked,horizon:Number($('horizon').value)};
+  return {limit:raw===''?null:Number(raw),refresh:$('refresh').checked,horizon:Number($('horizon').value),code:$('stockCode').value.trim()};
 }
 async function runTask(action){
   $('status').textContent='正在提交任务...';
@@ -409,6 +435,8 @@ def api_status():
 @app.post("/api/run/<action>")
 def api_run(action: str):
     allowed = {
+        "stock_detail",
+        "formula",
         "bootstrap",
         "scan",
         "backtest",
