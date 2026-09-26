@@ -43,3 +43,9 @@ def to_baostock_code(symbol: str) -> str:
     if code.startswith(("0", "2", "3")):
         return f"sz.{code}"
     raise ValueError(f"BaoStock 当前适配器暂不处理该市场代码: {code}")
+
+
+def is_shsz_a_share(symbol: str) -> bool:
+    """当前项目主股票池：沪深 A 股，不含北交所和 B 股。"""
+    code = normalize_symbol(symbol)
+    return code.startswith(("0", "3", "6"))
