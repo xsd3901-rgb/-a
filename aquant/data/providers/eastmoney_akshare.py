@@ -14,12 +14,28 @@ class EastMoneyAKShareProvider(DailyBarProvider):
     def fetch_stock_list(self) -> pd.DataFrame:
         import akshare as ak
 
-        df = ak.stock_zh_a_spot_em()
-        if df is None or df.empty:
-            return pd.DataFrame(columns=["symbol", "name"])
-        out = df.rename(columns={"代码": "symbol", "名称": "name"})[["symbol", "name"]].copy()
-        out["symbol"] = out["symbol"].map(normalize_symbol)
-        return out.drop_duplicates("symbol").reset_index(drop=True)
+        errors: list[str] = []
+        try:
+            df = ak.stock_zh_a_spot_em()
+            if df is not None and not df.empty:
+                out = df.rename(columns={"代码": "symbol", "名称": "name"})[["symbol", "name"]].copy()
+                out["symbol"] = out["symbol"].map(normalize_symbol)
+                return out.drop_duplicates("symbol").reset_index(drop=True)
+        except Exception as exc:
+            errors.append(f"stock_zh_a_spot_em: {exc}")
+
+        try:
+            df = ak.stock_info_a_code_name()
+            if df is not None and not df.empty:
+                code_col = "code" if "code" in df.columns else "代码"
+                name_col = "name" if "name" in df.columns else "名称"
+                out = df[[code_col, name_col]].rename(columns={code_col: "symbol", name_col: "name"}).copy()
+                out["symbol"] = out["symbol"].map(normalize_symbol)
+                return out.drop_duplicates("symbol").reset_index(drop=True)
+        except Exception as exc:
+            errors.append(f"stock_info_a_code_name: {exc}")
+
+        raise RuntimeError("股票列表接口全部失败: " + " | ".join(errors))
 
     def fetch_daily(
         self,
