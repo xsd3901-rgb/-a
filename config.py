@@ -56,6 +56,14 @@ class Settings:
     stop_atr_multiple: float = 1.8
     target_atr_multiple: float = 3.0
 
+    # 交易成本与组合约束。佣金为默认研究假设，实际账户可自行修改。
+    commission_bps: float = 2.5
+    min_commission_cny: float = 5.0
+    slippage_bps: float = 3.0
+    portfolio_initial_capital: float = 1_000_000.0
+    portfolio_max_positions: int = 10
+    portfolio_max_position_pct: float = 0.10
+
     # 兼容后备批次；主流程实际批次由 aquant.runtime.resources 按电脑内存动态决定
     flush_every: int = 50
 
