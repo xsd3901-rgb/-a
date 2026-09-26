@@ -274,3 +274,45 @@ data_store/research/feature_validation/
 ```
 
 全市场验证不会一次把所有特征列全部装进内存，而是按特征逐列从 Parquet/DuckDB 读取。验证结果只用于决定下一轮应该保留、淘汰或继续观察哪些特征，当前阶段**不会自动修改正式选股评分权重**。
+
+
+## V2 候选评分与 Walk-Forward
+
+正式评分 V1 暂时保持不变。V2 采用“先验证、再候选、再滚动样本外”的升级流程，任何一步没有通过都不会自动替换当前正式评分。
+
+先运行特征有效性验证：
+
+```powershell
+python main.py features --limit 200
+```
+
+然后从 5 / 10 / 20 日验证结果中筛选至少两个预测窗口方向一致、样本数量充足且具有统计证据的特征：
+
+```powershell
+python main.py select-features
+```
+
+候选清单输出：
+
+```text
+reports/feature_selection_v2.csv
+data_store/research/models/score_v2_candidate.json
+```
+
+最后运行滚动样本外验证：
+
+```powershell
+python main.py walk-forward --horizon 10
+```
+
+默认使用约 252 个交易日训练、63 个交易日验证，并在训练与验证之间保留至少等于预测窗口的 gap，避免未来收益标签跨越边界造成泄漏。每一折都重新只用该折训练期拟合 V2 规则，再应用到后续验证期。
+
+输出：
+
+```text
+reports/walk_forward_folds.csv
+reports/walk_forward_rules.csv
+reports/walk_forward_summary.csv
+```
+
+即使 Walk-Forward 基础检查通过，系统目前也只标记为“可进入正式回测候选”，**不会自动切换 V1 → V2**。下一阶段需要把 V2 放入带停牌、ST、涨跌停和真实成交约束的交易回测中，与 V1 做同区间对照后才能决定是否晋级。
