@@ -65,6 +65,10 @@ class Settings:
     portfolio_max_positions: int = 10
     portfolio_max_position_pct: float = 0.10
 
+    # 独立风险过滤：只阻断明显不可交易/极端风险样本，不替代评分模型。
+    risk_min_amount_ma5: float = 20_000_000.0
+    risk_max_atr_pct: float = 12.0
+
     # 兼容后备批次；主流程实际批次由 aquant.runtime.resources 按电脑内存动态决定
     flush_every: int = 50
 
