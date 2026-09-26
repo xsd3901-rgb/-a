@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from config import SETTINGS, ensure_directories
+from profile import load_strategy_profile
 
 
 def build_formula() -> str:
-    threshold = int(SETTINGS.score_threshold)
+    threshold = int(load_strategy_profile()["score_threshold"])
     min_amount = int(SETTINGS.risk_min_amount_ma5)
     max_atr = float(SETTINGS.risk_max_atr_pct)
 
