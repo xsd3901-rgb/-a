@@ -321,11 +321,15 @@ class MarketDataService:
 
         coverage = 0.0
         if "pct_change" in execution.columns:
-            coverage = float(
-                pd.to_numeric(
-                    execution["pct_change"], errors="coerce"
-                ).notna().mean()
-            )
+            pct = pd.to_numeric(execution["pct_change"], errors="coerce")
+            if "trade_status" in execution.columns:
+                status = pd.to_numeric(
+                    execution["trade_status"], errors="coerce"
+                )
+                sample = pct[status.eq(1)]
+            else:
+                sample = pct
+            coverage = float(sample.notna().mean()) if len(sample) else 0.0
 
         if coverage >= 0.70:
             signal = build_point_in_time_continuous(execution)
