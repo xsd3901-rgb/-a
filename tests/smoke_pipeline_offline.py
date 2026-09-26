@@ -172,7 +172,20 @@ def main() -> None:
                     assert "环境分" in trades.columns
                     assert "买入规则" in trades.columns
 
-            with patch.object(optimizer, "MarketDataService", FakeMarketDataService):
+            with (
+                patch.object(optimizer, "MarketDataService", FakeMarketDataService),
+                patch.object(
+                    optimizer,
+                    "run_data_audit",
+                    lambda limit=None: (
+                        pd.DataFrame(),
+                        {
+                            "状态": "通过",
+                            "股票池来源": "security_lifecycle",
+                        },
+                    ),
+                ),
+            ):
                 result, best = optimizer.optimize_parameters(limit=2, refresh=False)
                 assert isinstance(result, pd.DataFrame)
                 assert len(result) == 9
