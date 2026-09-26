@@ -6,6 +6,8 @@ from backtest import run_backtest
 from config import SETTINGS
 from evaluator import evaluate_by_market_regime, evaluate_trades, metrics_frame
 from aquant.research.feature_validation import run_feature_validation
+from aquant.research.feature_selection import build_v2_candidate
+from aquant.research.walk_forward import run_walk_forward
 from optimizer import optimize_parameters
 from profile import load_strategy_profile
 from scanner import scan_market
@@ -26,6 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
     features = sub.add_parser("features", help="验证特征有效性，不自动修改评分权重")
     features.add_argument("--limit", type=int, default=200, help="验证股票数，默认200；0或不限制时可扩大")
     features.add_argument("--refresh", action="store_true", help="强制刷新研究数据")
+
+    sub.add_parser("select-features", help="从特征验证结果生成 V2 候选特征，不启用")
+
+    wf = sub.add_parser("walk-forward", help="对 V2 候选模型执行滚动样本外验证")
+    wf.add_argument("--horizon", type=int, choices=[5, 10, 20], default=10, help="预测窗口，默认10日")
 
     opt = sub.add_parser("optimize", help="训练/验证分段的受控参数优化")
     opt.add_argument("--limit", type=int, default=100, help="优化样本股票数，默认100")
@@ -80,6 +87,31 @@ def main() -> None:
             print(
                 f"\n完整结果已保存：{SETTINGS.report_dir / 'feature_validation.csv'}"
             )
+        return
+
+    if args.command == "select-features":
+        selected, candidate = build_v2_candidate()
+        if selected.empty:
+            print("当前没有特征通过 V2 候选筛选，正式评分保持 V1。")
+        else:
+            print("\nV2 候选特征（研究状态，不自动启用）：")
+            print(selected.to_string(index=False))
+            print(
+                f"\n候选模型规则数: {len(candidate.get('rules', []))}；"
+                "下一步请运行 walk-forward。"
+            )
+        return
+
+    if args.command == "walk-forward":
+        folds, summary = run_walk_forward(horizon=args.horizon)
+        if folds.empty:
+            print("没有足够历史样本生成 Walk-Forward 窗口。")
+        else:
+            print("\nWalk-Forward 分折结果：")
+            print(folds.to_string(index=False))
+        print("\nWalk-Forward 汇总：")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
         return
 
     if args.command == "optimize":
