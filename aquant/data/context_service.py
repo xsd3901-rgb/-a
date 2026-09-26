@@ -4,6 +4,8 @@ import time
 
 import pandas as pd
 
+from config import SETTINGS
+
 from aquant.data.context_store import MarketContextStore
 from aquant.data.safe_fetch import (
     fetch_index_daily_with_timeout,
@@ -24,8 +26,9 @@ DEFAULT_INDICES: dict[str, tuple[str, str]] = {
 class MarketContextService:
     """指数日线和行业映射的统一服务，优先本地、缺失时增量更新。"""
 
-    def __init__(self, store_root: str = "data_store") -> None:
-        self.store = MarketContextStore(store_root)
+    def __init__(self, store_root: str | None = None) -> None:
+        root = str(SETTINGS.data_store_dir) if store_root is None else store_root
+        self.store = MarketContextStore(root)
 
     @staticmethod
     def _fresh(path, max_age_hours: float) -> bool:
