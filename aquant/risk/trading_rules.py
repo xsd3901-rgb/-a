@@ -163,8 +163,21 @@ def trading_age(
     if (row_date - listing).days > 14:
         return 20
 
-    dates = pd.to_datetime(bars.loc[:row_index, "date"], errors="coerce").dt.normalize()
-    count = int(((dates >= listing) & (dates <= row_date)).sum())
+    window = bars.loc[:row_index].copy()
+    dates = pd.to_datetime(window["date"], errors="coerce").dt.normalize()
+    active = (dates >= listing) & (dates <= row_date)
+
+    # 停牌日期属于真实执行时间轴，但不应计入“上市后第几个交易日”。
+    status_col = None
+    if "exec_trade_status" in window.columns:
+        status_col = "exec_trade_status"
+    elif "trade_status" in window.columns:
+        status_col = "trade_status"
+    if status_col is not None:
+        status = pd.to_numeric(window[status_col], errors="coerce")
+        active &= status.eq(1)
+
+    count = int(active.sum())
     return max(1, count) if count > 0 else 1
 
 
