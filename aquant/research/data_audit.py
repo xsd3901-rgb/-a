@@ -278,7 +278,7 @@ def audit_market_store(
                 hard_fail = True
         # 正式历史研究必须有足够的点时字段；否则会退回 QFQ 或无法
         # 正确识别历史停牌/ST，不能标记为正式验收可用。
-        if pct_coverage < 0.70:
+        if pct_coverage < 0.95:
             reasons.append(f"pct_change覆盖{pct_coverage * 100:.1f}%")
             hard_fail = True
         if preclose_coverage < 0.95:
