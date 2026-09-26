@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 from flask import Flask, jsonify, render_template_string, request
 
+from aquant.models.registry import model_status
 from aquant.research.feature_selection import build_v2_candidate
 from aquant.research.feature_validation import run_feature_validation
 from aquant.research.model_compare import run_model_comparison
@@ -286,7 +287,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1327;padding:12px;b
     <div class="card"><div class="k">运行资源档</div><div class="v" id="runtime">--</div></div>
     <div class="card"><div class="k">可用内存</div><div class="v" id="memory">--</div></div>
     <div class="card"><div class="k">当前策略阈值</div><div class="v" id="threshold">--</div></div>
-    <div class="card"><div class="k">报告文件</div><div class="v" id="reportCount">--</div></div>
+    <div class="card"><div class="k">模型状态</div><div class="v" id="modelState">--</div></div>
   </div>
 
   <div class="card">
@@ -391,7 +392,7 @@ async function refreshStatus(){
   $('runtime').textContent=d.runtime.name;
   $('memory').textContent=d.memory.available_gb+' GB';
   $('threshold').textContent=d.profile.score_threshold;
-  $('reportCount').textContent=d.reports.length;
+  $('modelState').textContent=d.models.active_model+' / '+d.models.v2_state;
   $('reportPath').textContent=d.paths.reports;
   $('reports').innerHTML=table(d.reports);
 }
@@ -421,6 +422,7 @@ def api_status():
                 "available_gb": round(available, 2),
             },
             "profile": load_strategy_profile(),
+            "models": model_status(),
             "paths": {
                 "project": str(SETTINGS.project_root),
                 "data_store": str(SETTINGS.data_store_dir),
