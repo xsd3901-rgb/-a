@@ -92,7 +92,10 @@ def release_readiness(
     try:
         _, audit_summary = run_data_audit(limit=audit_limit)
         audit_state = str(audit_summary.get("状态", "未知"))
-        audit_ok = audit_state in {"通过", "可用但有警告"}
+        audit_ok = (
+            audit_state in {"通过", "可用但有警告"}
+            and audit_summary.get("股票池来源") == "security_lifecycle"
+        )
         rows.append(
             {
                 "检查项": "本地行情库",
