@@ -322,6 +322,7 @@ def bootstrap_market(
     )
 
     completed_now = 0
+    run_started = time.monotonic()
 
     def handle_result(
         row: dict,
@@ -357,9 +358,19 @@ def bootstrap_market(
                 item.get("状态") in {"OK", "SKIPPED_RESUME", "SKIPPED_RANGE"}
                 for item in rows
             )
+            elapsed = max(0.001, time.monotonic() - run_started)
+            actually_finished = completed_now + len(errors)
+            per_minute = actually_finished / elapsed * 60.0
+            remaining = max(0, len(pending) - actually_finished)
+            eta_minutes = (
+                remaining / per_minute
+                if per_minute > 0
+                else 0.0
+            )
             announce(
                 f"建库进度 {done}/{len(stocks)} | "
-                f"成功/已完成 {ok_count} | 失败 {len(errors)}"
+                f"成功/已完成 {ok_count} | 失败 {len(errors)} | "
+                f"速度 {per_minute:.1f}只/分钟 | ETA {eta_minutes:.1f}分钟"
             )
             gc.collect()
 
@@ -424,6 +435,8 @@ def bootstrap_market(
         else {}
     )
 
+    elapsed_seconds = round(time.monotonic() - run_started, 2)
+    processed_count = max(0, len(pending))
     summary = {
         "市场": "沪深A股",
         "开始日期": start_date.strftime("%Y-%m-%d"),
@@ -438,6 +451,10 @@ def bootstrap_market(
         else 0.0,
         "资源档位": runtime.name,
         "建库并发": workers,
+        "耗时秒": elapsed_seconds,
+        "平均实际处理秒/只": round(
+            elapsed_seconds / processed_count, 3
+        ) if processed_count else 0.0,
         "检查点": str(checkpoint.path),
         "Raw来源分布": source_quality,
         "数据目录": str(SETTINGS.data_store_dir),
