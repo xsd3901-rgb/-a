@@ -8,6 +8,7 @@ import pandas as pd
 
 from aquant.data.context_store import MarketContextStore
 from aquant.data.factor_store import AdjustmentFactorStore
+from aquant.data.quality import validate_bar_frame
 from aquant.data.reference import ReferenceStore
 from aquant.data.schema import FIELDS
 from aquant.data.storage import MarketStore
@@ -45,6 +46,25 @@ def main() -> None:
         reference.refresh_catalog(root / "aquant.duckdb")
 
         market = MarketStore(root)
+
+        # 停牌行允许价格为空，但 trade_status=0 必须被保留下来，
+        # 不能因此把整段历史行情判为损坏。
+        suspended_check = pd.DataFrame(
+            {
+                FIELDS.symbol: ["600000", "600000"],
+                FIELDS.trade_date: pd.to_datetime(
+                    ["2026-09-22", "2026-09-23"]
+                ),
+                FIELDS.open: [10.0, pd.NA],
+                FIELDS.high: [10.1, pd.NA],
+                FIELDS.low: [9.9, pd.NA],
+                FIELDS.close: [10.0, pd.NA],
+                FIELDS.volume: [1_000_000, 0],
+                FIELDS.trade_status: [1, 0],
+            }
+        )
+        assert validate_bar_frame(suspended_check) == []
+
         bars = pd.DataFrame(
             {
                 FIELDS.symbol: ["600000", "600000", "600000"],
