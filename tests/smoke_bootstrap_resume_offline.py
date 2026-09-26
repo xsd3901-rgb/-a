@@ -42,7 +42,9 @@ class FakeMarketDataService:
     fetch_count = 0
 
     def __init__(self, *args, **kwargs) -> None:
-        pass
+        self.store = SimpleNamespace(
+            latest_date=lambda code, adjust: pd.Timestamp("2025-06-30")
+        )
 
     def latest_trade_date(self) -> pd.Timestamp:
         return pd.Timestamp("2025-06-30")
