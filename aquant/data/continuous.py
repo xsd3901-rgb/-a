@@ -23,11 +23,27 @@ def build_point_in_time_continuous(raw_bars: pd.DataFrame) -> pd.DataFrame:
         "date", keep="last"
     ).reset_index(drop=True)
 
+    # 连续研究价只在真正可交易的个股K线序列上计算。
+    # 停牌日期留在独立 execution 时间轴中，由回测层负责阻断成交；
+    # 不把停牌日当成一根“平盘K线”参与 MA/动量窗口。
+    if "trade_status" in out.columns:
+        status = pd.to_numeric(out["trade_status"], errors="coerce")
+        out = out[status.eq(1)].copy()
+
     for col in ("open", "high", "low", "close"):
         out[col] = pd.to_numeric(out[col], errors="coerce")
-    out = out.dropna(subset=["open", "high", "low", "close"])
+    valid_price = out[["open", "high", "low", "close"]].notna().all(axis=1)
+    valid_price &= (out[["open", "high", "low", "close"]] > 0).all(axis=1)
+    out = out[valid_price].reset_index(drop=True)
     if out.empty:
         return out
+
+    first_raw_preclose = None
+    if "preclose" in out.columns:
+        candidate = pd.to_numeric(out["preclose"], errors="coerce").dropna()
+        candidate = candidate[candidate > 0]
+        if not candidate.empty:
+            first_raw_preclose = float(candidate.iloc[0])
 
     raw_close = out["close"].astype(float)
     fallback_ret = raw_close.pct_change()
@@ -59,13 +75,10 @@ def build_point_in_time_continuous(raw_bars: pd.DataFrame) -> pd.DataFrame:
     out["close"] = continuous_close
     out["preclose"] = out["close"].shift(1)
     if len(out):
-        first_preclose = None
-        if "preclose" in raw_bars.columns:
-            raw_pre = pd.to_numeric(raw_bars["preclose"], errors="coerce").dropna()
-            if not raw_pre.empty:
-                first_preclose = float(raw_pre.iloc[0])
         out.loc[out.index[0], "preclose"] = (
-            first_preclose if first_preclose and first_preclose > 0 else out.loc[out.index[0], "close"]
+            first_raw_preclose
+            if first_raw_preclose is not None and first_raw_preclose > 0
+            else out.loc[out.index[0], "close"]
         )
 
     out["signal_price_mode"] = "point_in_time_continuous"
