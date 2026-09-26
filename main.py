@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 
 from backtest import run_backtest
+from bootstrap import bootstrap_market
 from config import SETTINGS
 from evaluator import evaluate_by_market_regime, evaluate_trades, metrics_frame
 from aquant.research.feature_validation import run_feature_validation
@@ -18,6 +19,11 @@ from scanner import scan_market
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="A股短期波段量化选股器")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    bootstrap = sub.add_parser("bootstrap", help="建立/增量更新沪深A股本地数据库")
+    bootstrap.add_argument("--limit", type=int, default=None, help="仅建库前N只；不填则全部")
+    bootstrap.add_argument("--refresh", action="store_true", help="强制刷新远端数据")
+    bootstrap.add_argument("--days", type=int, default=None, help="向前建库自然日数，默认使用配置")
 
     scan = sub.add_parser("scan", help="扫描股票市场")
     scan.add_argument("--limit", type=int, default=None, help="仅扫描前N只；不填则扫描全部")
@@ -49,6 +55,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+
+    if args.command == "bootstrap":
+        status, summary = bootstrap_market(
+            limit=args.limit,
+            refresh=args.refresh,
+            calendar_days=args.days,
+        )
+        print("\n本地数据库建库汇总：")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        if not status.empty:
+            print("\n最后20条建库状态：")
+            print(status.tail(20).to_string(index=False))
+        return
 
     if args.command == "scan":
         result = scan_market(limit=args.limit, refresh=args.refresh)
