@@ -4,8 +4,9 @@ import gc
 
 import pandas as pd
 
+from aquant.data.service import MarketDataService
+from aquant.runtime.resources import current_profile
 from config import SETTINGS, ensure_directories
-from data import FreeAStockData
 from profile import load_strategy_profile
 from strategy import score_history
 
@@ -126,7 +127,8 @@ def run_backtest(
     persist: bool = True,
 ) -> pd.DataFrame:
     ensure_directories()
-    provider = FreeAStockData()
+    provider = MarketDataService()
+    runtime = current_profile()
     stocks = provider.stock_list()
     if limit and limit > 0:
         stocks = stocks.head(limit)
@@ -134,6 +136,12 @@ def run_backtest(
     all_trades: list[dict] = []
     errors: list[dict] = []
     total = len(stocks)
+    flush_every = max(1, runtime.batch_size)
+
+    print(
+        f"资源档位: {runtime.name} | 批次 {runtime.batch_size} | "
+        f"回测并发上限 {runtime.backtest_workers}"
+    )
 
     for i, row in stocks.iterrows():
         code, name = str(row["code"]), str(row["name"])
@@ -154,7 +162,7 @@ def run_backtest(
         except Exception as exc:
             errors.append({"代码": code, "名称": name, "错误": str(exc)[:300]})
         finally:
-            if (i + 1) % SETTINGS.flush_every == 0:
+            if (i + 1) % flush_every == 0:
                 print(f"回测进度 {i + 1}/{total}，累计交易 {len(all_trades)}，失败 {len(errors)}")
                 gc.collect()
 
