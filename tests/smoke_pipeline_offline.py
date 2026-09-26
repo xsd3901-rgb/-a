@@ -109,9 +109,15 @@ def main() -> None:
                     assert "市场环境" in selected.columns
                     assert set(selected["市场环境"]) == {"偏强"}
 
-            with patch.object(backtest, "MarketDataService", FakeMarketDataService):
+            with (
+                patch.object(backtest, "MarketDataService", FakeMarketDataService),
+                patch.object(backtest, "MarketContextService", FakeMarketContextService),
+            ):
                 trades = backtest.run_backtest(limit=2, refresh=False, persist=False)
                 assert isinstance(trades, pd.DataFrame)
+                if not trades.empty:
+                    assert "市场环境" in trades.columns
+                    assert "环境分" in trades.columns
 
             with patch.object(optimizer, "MarketDataService", FakeMarketDataService):
                 result, best = optimizer.optimize_parameters(limit=2, refresh=False)
