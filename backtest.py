@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import gc
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 
@@ -507,6 +509,72 @@ def backtest_stock(
     )
 
 
+def _backtest_one(
+    stock: dict,
+    *,
+    fetch_start: pd.Timestamp,
+    signal_start: pd.Timestamp,
+    market_end: pd.Timestamp,
+    refresh: bool,
+    score_threshold: int | None,
+    stop_atr_multiple: float | None,
+    target_atr_multiple: float | None,
+    max_hold_days: int | None,
+) -> tuple[list[dict], dict | None]:
+    code = str(stock["code"])
+    name = str(stock["name"])
+    listing_date = stock.get("listing_date", pd.NaT)
+    delisting_date = stock.get("delisting_date", pd.NaT)
+
+    stock_start = fetch_start
+    if pd.notna(listing_date):
+        stock_start = max(
+            stock_start,
+            pd.Timestamp(listing_date).normalize(),
+        )
+
+    stock_end = market_end
+    if pd.notna(delisting_date):
+        stock_end = min(
+            stock_end,
+            pd.Timestamp(delisting_date).normalize(),
+        )
+
+    if stock_start >= stock_end:
+        return [], None
+
+    try:
+        provider = MarketDataService()
+        hist, execution_bars = provider.research_history_range(
+            code,
+            stock_start.strftime("%Y-%m-%d"),
+            stock_end.strftime("%Y-%m-%d"),
+            refresh=refresh,
+        )
+        if len(hist) < SETTINGS.min_bars:
+            return [], None
+
+        trades = backtest_stock(
+            code,
+            name,
+            hist,
+            score_threshold=score_threshold,
+            stop_atr_multiple=stop_atr_multiple,
+            target_atr_multiple=target_atr_multiple,
+            max_hold_days=max_hold_days,
+            listing_date=listing_date,
+            signal_start_date=signal_start,
+            execution_bars=execution_bars,
+        )
+        return trades, None
+    except Exception as exc:
+        return [], {
+            "代码": code,
+            "名称": name,
+            "错误": str(exc)[:300],
+        }
+
+
 def run_backtest(
     limit: int | None = None,
     refresh: bool = False,
@@ -521,7 +589,9 @@ def run_backtest(
     runtime = current_profile()
 
     market_end = provider.latest_trade_date()
-    signal_start = market_end - pd.Timedelta(days=SETTINGS.backtest_calendar_days)
+    signal_start = market_end - pd.Timedelta(
+        days=SETTINGS.backtest_calendar_days
+    )
     fetch_start = signal_start - pd.Timedelta(
         days=SETTINGS.backtest_warmup_calendar_days
     )
@@ -534,6 +604,7 @@ def run_backtest(
     )
     if limit and limit > 0:
         stocks = stocks.head(limit)
+    stocks = stocks.reset_index(drop=True)
 
     regime_history = pd.DataFrame()
     try:
@@ -554,6 +625,15 @@ def run_backtest(
     errors: list[dict] = []
     total = len(stocks)
     flush_every = max(1, runtime.batch_size)
+    workers = max(
+        1,
+        min(
+            int(runtime.backtest_workers),
+            int(runtime.download_workers),
+            max(1, total),
+        ),
+    )
+    started = time.monotonic()
 
     print(
         f"历史股票池: {total} 只 | 正式信号区间 "
@@ -561,58 +641,85 @@ def run_backtest(
     )
     print(
         f"资源档位: {runtime.name} | 批次 {runtime.batch_size} | "
-        f"回测并发上限 {runtime.backtest_workers}"
+        f"回测并发 {workers}"
     )
 
-    for i, row in stocks.iterrows():
-        code, name = str(row["code"]), str(row["name"])
-        listing_date = row.get("listing_date", pd.NaT)
-        delisting_date = row.get("delisting_date", pd.NaT)
+    def handle(
+        result: tuple[list[dict], dict | None],
+        done: int,
+    ) -> None:
+        trades_part, error = result
+        if trades_part:
+            all_trades.extend(trades_part)
+        if error is not None:
+            errors.append(error)
 
-        stock_start = fetch_start
-        if pd.notna(listing_date):
-            stock_start = max(stock_start, pd.Timestamp(listing_date).normalize())
-
-        stock_end = market_end
-        if pd.notna(delisting_date):
-            stock_end = min(stock_end, pd.Timestamp(delisting_date).normalize())
-
-        if stock_start >= stock_end:
-            continue
-
-        try:
-            hist, execution_bars = provider.research_history_range(
-                code,
-                stock_start.strftime("%Y-%m-%d"),
-                stock_end.strftime("%Y-%m-%d"),
-                refresh=refresh,
+        if done == total or done % flush_every == 0:
+            elapsed = max(0.001, time.monotonic() - started)
+            per_minute = done / elapsed * 60.0
+            remaining = max(0, total - done)
+            eta = remaining / per_minute if per_minute > 0 else 0.0
+            print(
+                f"回测进度 {done}/{total} | 累计交易 {len(all_trades)} | "
+                f"失败 {len(errors)} | {per_minute:.1f}只/分钟 | "
+                f"ETA {eta:.1f}分钟"
             )
-            if len(hist) >= SETTINGS.min_bars:
-                all_trades.extend(
-                    backtest_stock(
-                        code,
-                        name,
-                        hist,
-                        score_threshold=score_threshold,
-                        stop_atr_multiple=stop_atr_multiple,
-                        target_atr_multiple=target_atr_multiple,
-                        max_hold_days=max_hold_days,
-                        listing_date=listing_date,
-                        signal_start_date=signal_start,
-                        execution_bars=execution_bars,
-                    )
-                )
-        except Exception as exc:
-            errors.append({"代码": code, "名称": name, "错误": str(exc)[:300]})
-        finally:
-            if (i + 1) % flush_every == 0:
-                print(
-                    f"回测进度 {i + 1}/{total}，累计交易 {len(all_trades)}，"
-                    f"失败 {len(errors)}"
-                )
-                gc.collect()
+            gc.collect()
 
-    trades = _attach_market_regime(pd.DataFrame(all_trades), regime_history)
+    stock_records = [row.to_dict() for _, row in stocks.iterrows()]
+
+    if workers == 1:
+        for done, stock in enumerate(stock_records, start=1):
+            handle(
+                _backtest_one(
+                    stock,
+                    fetch_start=fetch_start,
+                    signal_start=signal_start,
+                    market_end=market_end,
+                    refresh=refresh,
+                    score_threshold=score_threshold,
+                    stop_atr_multiple=stop_atr_multiple,
+                    target_atr_multiple=target_atr_multiple,
+                    max_hold_days=max_hold_days,
+                ),
+                done,
+            )
+    else:
+        with ThreadPoolExecutor(
+            max_workers=workers,
+            thread_name_prefix="aquant-backtest",
+        ) as executor:
+            futures = [
+                executor.submit(
+                    _backtest_one,
+                    stock,
+                    fetch_start=fetch_start,
+                    signal_start=signal_start,
+                    market_end=market_end,
+                    refresh=refresh,
+                    score_threshold=score_threshold,
+                    stop_atr_multiple=stop_atr_multiple,
+                    target_atr_multiple=target_atr_multiple,
+                    max_hold_days=max_hold_days,
+                )
+                for stock in stock_records
+            ]
+            for done, future in enumerate(as_completed(futures), start=1):
+                handle(future.result(), done)
+
+    raw_trades = pd.DataFrame(all_trades)
+    if not raw_trades.empty:
+        sort_cols = [
+            col for col in ["买入日", "代码", "卖出日"]
+            if col in raw_trades.columns
+        ]
+        if sort_cols:
+            raw_trades = raw_trades.sort_values(
+                sort_cols
+            ).reset_index(drop=True)
+
+    trades = _attach_market_regime(raw_trades, regime_history)
+
     if persist:
         trades.to_csv(
             SETTINGS.report_dir / "backtest_trades.csv",
@@ -625,4 +732,13 @@ def run_backtest(
                 index=False,
                 encoding="utf-8-sig",
             )
+        else:
+            error_path = SETTINGS.report_dir / "backtest_errors.csv"
+            if error_path.exists():
+                error_path.unlink()
+
+    print(
+        f"回测完成：股票 {total} | 交易 {len(trades)} | "
+        f"失败 {len(errors)} | 耗时 {time.monotonic() - started:.1f}秒"
+    )
     return trades
