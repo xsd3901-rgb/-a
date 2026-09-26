@@ -18,7 +18,9 @@ class MarketDataContract:
     volume: str = "volume"          # 统一单位：股
     amount: str = "amount"          # 统一单位：人民币元
     turnover: str = "turnover"      # 统一单位：%
-    is_st: str = "is_st"              # 点时 ST 标记，数据源提供时使用
+    pct_change: str = "pct_change"  # 日涨跌幅，单位：%
+    trade_status: str = "trade_status"  # 1=可交易，0=停牌/不可交易（数据源提供时）
+    is_st: str = "is_st"            # 点时 ST 标记，数据源提供时使用
     adj_factor: str = "adj_factor"
 
     # 来源元数据：真实数据提供方和 Python 适配器分开记录。
@@ -44,8 +46,12 @@ CORE_BAR_COLUMNS: Final[tuple[str, ...]] = (
 )
 
 OPTIONAL_BAR_COLUMNS: Final[tuple[str, ...]] = (
+    FIELDS.preclose,
     FIELDS.amount,
     FIELDS.turnover,
+    FIELDS.pct_change,
+    FIELDS.trade_status,
+    FIELDS.is_st,
     FIELDS.adj_factor,
 )
 
