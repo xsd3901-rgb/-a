@@ -32,6 +32,10 @@ class Settings:
     reference_hold_max_days: int = 30
     trend_exit_min_days: int = 3
 
+    # 默认历史回测窗口。前置 warmup 只用于指标计算，不计入正式信号区间。
+    backtest_calendar_days: int = 540
+    backtest_warmup_calendar_days: int = 260
+
     # 风险/收益参数
     stop_atr_multiple: float = 1.8
     target_atr_multiple: float = 3.0
