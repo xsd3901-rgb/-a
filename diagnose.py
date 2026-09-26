@@ -77,6 +77,24 @@ def main() -> None:
 
         provider.refresh_catalog()
         print("[OK] 股票基础库/交易日历/日线已进入 Parquet，并刷新 DuckDB 目录视图")
+
+        from aquant.data.context_service import MarketContextService
+
+        context = MarketContextService()
+        industry = context.industry_map()
+        if industry.empty:
+            raise RuntimeError("行业映射为空")
+        print(f"[OK] 行业映射可用，共 {len(industry)} 条")
+
+        index_start = (latest_trade - __import__("pandas").Timedelta(days=45)).strftime("%Y-%m-%d")
+        index_end = latest_trade.strftime("%Y-%m-%d")
+        index_df = context.index_daily("sh000001", index_start, index_end)
+        if index_df.empty:
+            raise RuntimeError("上证指数日线为空")
+        print(f"[OK] 上证指数日线可用，共 {len(index_df)} 根，最新日期 {index_df.iloc[-1]['trade_date']}")
+
+        context.store.refresh_catalog()
+        print("[OK] 指数/行业数据已进入 Parquet，并刷新 DuckDB 目录视图")
         print("[OK] 数据层端到端诊断通过")
     except Exception as exc:
         print(f"[FAIL] 新版数据层测试失败: {exc}")
