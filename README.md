@@ -634,3 +634,41 @@ bootstrap_resume = True
 ```
 
 `--refresh` 会清空当前日期的断点状态并强制重新抓取，因此只在确实需要重建数据时使用。正常每天更新不建议加 `--refresh`。
+
+
+## 定向修复失败行情
+
+数据审计发现少数股票 FAIL 时，不需要重新抓取全市场：
+
+```powershell
+python main.py repair-data
+```
+
+只修复前 N 只失败股票：
+
+```powershell
+python main.py repair-data --limit 20
+```
+
+流程是：
+
+```text
+本地 audit-data
+  ↓
+提取 FAIL 股票代码
+  ↓
+只对这些股票强制刷新历史数据
+  ↓
+再次执行全库本地审计
+  ↓
+输出仍失败股票
+```
+
+网页端对应按钮为 **“修复失败数据”**。输出写入：
+
+```text
+reports/data_repair.csv
+reports/data_repair_summary.json
+```
+
+这样代理或免费接口偶发失败时，第二次处理只补坏掉的股票，不必浪费时间重建整个沪深市场。
