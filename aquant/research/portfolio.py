@@ -5,6 +5,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from aquant.data.schema import FIELDS
+from aquant.data.storage import MarketStore
 from aquant.risk.costs import AShareCostModel
 from config import SETTINGS
 
@@ -27,9 +29,207 @@ def _empty_metrics() -> dict:
         "胜率%": 0.0,
         "平均单笔净收益%": 0.0,
         "最大账面成本回撤%": 0.0,
+        "最大盯市回撤%": 0.0,
+        "盯市覆盖率%": 0.0,
         "最大同时持仓": 0,
         "说明": "没有可用于组合模拟的完整交易。",
     }
+
+
+def _normalize_price_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame is None or frame.empty:
+        return pd.DataFrame(columns=["date", "close"])
+
+    out = frame.copy()
+    date_col = "date" if "date" in out.columns else FIELDS.trade_date
+    if date_col not in out.columns or "close" not in out.columns:
+        return pd.DataFrame(columns=["date", "close"])
+
+    out["date"] = pd.to_datetime(out[date_col], errors="coerce").dt.normalize()
+    out["close"] = pd.to_numeric(out["close"], errors="coerce")
+    out = out.dropna(subset=["date", "close"])
+    out = out[out["close"] > 0]
+    return (
+        out[["date", "close"]]
+        .sort_values("date")
+        .drop_duplicates("date", keep="last")
+        .reset_index(drop=True)
+    )
+
+
+def _load_price_frames(
+    executed: pd.DataFrame,
+    price_frames: dict[str, pd.DataFrame] | None,
+) -> dict[str, pd.DataFrame]:
+    """优先使用调用方提供的未复权价格；否则只读本地 none 层，不触发网络。"""
+    supplied = {
+        str(code): _normalize_price_frame(frame)
+        for code, frame in (price_frames or {}).items()
+    }
+    if executed is None or executed.empty:
+        return supplied
+
+    store = MarketStore(SETTINGS.data_store_dir)
+    result = dict(supplied)
+
+    for code, group in executed.groupby("代码"):
+        symbol = str(code).zfill(6)
+        if symbol in result and not result[symbol].empty:
+            continue
+
+        start = pd.to_datetime(group["买入日"], errors="coerce").min()
+        end = pd.to_datetime(group["卖出日"], errors="coerce").max()
+        if pd.isna(start) or pd.isna(end):
+            result[symbol] = pd.DataFrame(columns=["date", "close"])
+            continue
+
+        try:
+            local = store.read_daily(
+                symbol,
+                "none",
+                start_date=pd.Timestamp(start).strftime("%Y-%m-%d"),
+                end_date=pd.Timestamp(end).strftime("%Y-%m-%d"),
+            )
+            result[symbol] = _normalize_price_frame(local)
+        except Exception:
+            result[symbol] = pd.DataFrame(columns=["date", "close"])
+
+    return result
+
+
+def _mark_to_market_equity(
+    executed: pd.DataFrame,
+    *,
+    initial_capital: float,
+    price_frames: dict[str, pd.DataFrame] | None = None,
+) -> tuple[pd.DataFrame, float, float]:
+    """按未复权日线收盘价生成逐日盯市权益曲线。
+
+    缺失某只股票当日价格（例如停牌）时沿用最近一次可见收盘价。
+    若本地完全没有该股票价格，则退回买入成交前的原始买入价作为持仓估值。
+    """
+    if executed is None or executed.empty:
+        return pd.DataFrame(), 0.0, 0.0
+
+    frame = executed.copy().reset_index(drop=True)
+    frame["_portfolio_trade_id"] = frame.index.astype(int)
+    frame["买入日"] = pd.to_datetime(frame["买入日"], errors="coerce").dt.normalize()
+    frame["卖出日"] = pd.to_datetime(frame["卖出日"], errors="coerce").dt.normalize()
+    frame = frame.dropna(subset=["买入日", "卖出日"])
+    if frame.empty:
+        return pd.DataFrame(), 0.0, 0.0
+
+    prices = _load_price_frames(frame, price_frames)
+
+    price_maps: dict[str, dict[pd.Timestamp, float]] = {}
+    all_dates: set[pd.Timestamp] = set()
+    total_expected_marks = 0
+    available_marks = 0
+
+    for code, price_frame in prices.items():
+        if price_frame.empty:
+            price_maps[str(code)] = {}
+            continue
+        mapping = {
+            pd.Timestamp(row["date"]).normalize(): float(row["close"])
+            for _, row in price_frame.iterrows()
+        }
+        price_maps[str(code)] = mapping
+        all_dates.update(mapping.keys())
+
+    all_dates.update(frame["买入日"].tolist())
+    all_dates.update(frame["卖出日"].tolist())
+    if not all_dates:
+        return pd.DataFrame(), 0.0, 0.0
+
+    start_date = frame["买入日"].min()
+    end_date = frame["卖出日"].max()
+    calendar = sorted(d for d in all_dates if start_date <= d <= end_date)
+
+    entry_map = {
+        date: group.copy()
+        for date, group in frame.groupby("买入日", sort=True)
+    }
+    exit_map = {
+        date: group.copy()
+        for date, group in frame.groupby("卖出日", sort=True)
+    }
+
+    cash = float(initial_capital)
+    positions: dict[int, dict] = {}
+    last_price: dict[str, float] = {}
+    rows: list[dict] = []
+
+    for current_date in calendar:
+        # 先卖出，再买入，与组合成交模拟口径一致。
+        exits = exit_map.get(current_date)
+        if exits is not None:
+            for _, row in exits.iterrows():
+                trade_id = int(row["_portfolio_trade_id"])
+                if trade_id in positions:
+                    cash += float(row["卖出现金回收"])
+                    positions.pop(trade_id, None)
+
+        entries = entry_map.get(current_date)
+        if entries is not None:
+            for _, row in entries.iterrows():
+                trade_id = int(row["_portfolio_trade_id"])
+                code = str(row["代码"]).zfill(6)
+                cash -= float(row["买入现金支出"])
+                raw_entry = pd.to_numeric(
+                    pd.Series([row.get("买入价")]),
+                    errors="coerce",
+                ).iloc[0]
+                if pd.notna(raw_entry) and float(raw_entry) > 0:
+                    last_price[code] = float(raw_entry)
+                positions[trade_id] = {
+                    "code": code,
+                    "shares": int(row["实际股数"]),
+                }
+
+        market_value = 0.0
+        for pos in positions.values():
+            code = pos["code"]
+            total_expected_marks += 1
+            daily = price_maps.get(code, {})
+            if current_date in daily:
+                last_price[code] = float(daily[current_date])
+                available_marks += 1
+
+            px = last_price.get(code)
+            if px is None or not math.isfinite(px) or px <= 0:
+                continue
+            market_value += float(pos["shares"]) * px
+
+        equity = cash + market_value
+        rows.append(
+            {
+                "日期": current_date,
+                "现金": round(cash, 2),
+                "持仓市值": round(market_value, 2),
+                "盯市权益": round(equity, 2),
+                "持仓数": len(positions),
+            }
+        )
+
+    equity = pd.DataFrame(rows)
+    if equity.empty:
+        return equity, 0.0, 0.0
+
+    curve = pd.to_numeric(equity["盯市权益"], errors="coerce").dropna()
+    if curve.empty:
+        max_drawdown = 0.0
+    else:
+        peak = curve.cummax()
+        drawdown = (curve / peak - 1.0) * 100.0
+        max_drawdown = abs(float(drawdown.min()))
+
+    coverage = (
+        available_marks / total_expected_marks * 100.0
+        if total_expected_marks
+        else 100.0
+    )
+    return equity, max_drawdown, coverage
 
 
 def simulate_portfolio(
@@ -38,12 +238,14 @@ def simulate_portfolio(
     initial_capital: float | None = None,
     max_positions: int | None = None,
     max_position_pct: float | None = None,
+    price_frames: dict[str, pd.DataFrame] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
-    """把独立交易信号放进有限资金账户，执行 A 股 100 股整数手约束。
+    """把独立交易信号放进有限资金账户，并生成逐日盯市权益。
 
-    组合权益曲线在持仓期间按买入成本记账，因此这里的回撤是
-    “账面成本回撤”，不是逐日盯市回撤。它主要用于解决独立交易
-    回测没有资金/持仓上限的问题。
+    - A 股 100 股整数手；
+    - 有限初始资金、最大持仓数、单股仓位上限；
+    - 佣金最低 5 元、历史印花税/过户费、滑点；
+    - 逐日盯市优先读取未复权本地行情，不触发网络。
     """
     if trades is None or trades.empty:
         return pd.DataFrame(), pd.DataFrame(), _empty_metrics()
@@ -88,7 +290,7 @@ def simulate_portfolio(
     cash = capital
     open_positions: dict[int, dict] = {}
     accepted_rows: list[dict] = []
-    equity_rows: list[dict] = []
+    book_equity_rows: list[dict] = []
     skipped = 0
     max_concurrent = 0
 
@@ -103,7 +305,6 @@ def simulate_portfolio(
     all_dates = sorted(set(entry_map) | set(exit_map))
 
     for current_date in all_dates:
-        # 先卖出，再处理当日新信号，释放的资金可在同日后续买入研究中复用。
         for trade_id in exit_map.get(current_date, []):
             position = open_positions.pop(trade_id, None)
             if position is None:
@@ -205,7 +406,7 @@ def simulate_portfolio(
         book_equity = cash + sum(
             pos["cash_out"] for pos in open_positions.values()
         )
-        equity_rows.append(
+        book_equity_rows.append(
             {
                 "日期": current_date,
                 "现金": round(cash, 2),
@@ -216,16 +417,23 @@ def simulate_portfolio(
         )
 
     executed = pd.DataFrame(accepted_rows)
-    equity = pd.DataFrame(equity_rows)
+    book_equity = pd.DataFrame(book_equity_rows)
     final_capital = cash + sum(pos["cash_out"] for pos in open_positions.values())
 
-    if not equity.empty:
-        curve = pd.to_numeric(equity["账面成本权益"], errors="coerce")
+    if not book_equity.empty:
+        curve = pd.to_numeric(book_equity["账面成本权益"], errors="coerce")
         peak = curve.cummax()
         drawdown = (curve / peak - 1.0) * 100.0
-        max_drawdown = abs(float(drawdown.min())) if not drawdown.empty else 0.0
+        book_drawdown = abs(float(drawdown.min())) if not drawdown.empty else 0.0
     else:
-        max_drawdown = 0.0
+        book_drawdown = 0.0
+
+    mark_equity, mark_drawdown, coverage = _mark_to_market_equity(
+        executed,
+        initial_capital=capital,
+        price_frames=price_frames,
+    )
+    equity = mark_equity if not mark_equity.empty else book_equity
 
     if executed.empty:
         win_rate = 0.0
@@ -245,11 +453,13 @@ def simulate_portfolio(
         "因仓位跳过": int(skipped),
         "胜率%": round(win_rate, 2),
         "平均单笔净收益%": round(avg_trade, 4),
-        "最大账面成本回撤%": round(max_drawdown, 3),
+        "最大账面成本回撤%": round(book_drawdown, 3),
+        "最大盯市回撤%": round(mark_drawdown, 3),
+        "盯市覆盖率%": round(coverage, 2),
         "最大同时持仓": int(max_concurrent),
         "说明": (
             "已计佣金最低5元、历史印花税/过户费和滑点；"
-            "持仓期间权益按买入成本记账，正式逐日盯市回撤仍需完整组合日线。"
+            "最大盯市回撤优先使用本地未复权日线逐日估值，停牌日沿用最近收盘价。"
         ),
     }
     return executed, equity, metrics
