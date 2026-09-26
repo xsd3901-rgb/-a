@@ -70,7 +70,7 @@ def main() -> None:
             with patch.object(scanner, "MarketDataService", FakeMarketDataService):
                 selected = scanner.scan_market(limit=2, refresh=False)
                 assert isinstance(selected, pd.DataFrame)
-                assert (Path("reports") / "scan_latest.csv").exists()
+                assert (scanner.SETTINGS.report_dir / "scan_latest.csv").exists()
 
             with patch.object(backtest, "MarketDataService", FakeMarketDataService):
                 trades = backtest.run_backtest(limit=2, refresh=False, persist=False)
@@ -80,7 +80,7 @@ def main() -> None:
                 result, best = optimizer.optimize_parameters(limit=2, refresh=False)
                 assert isinstance(result, pd.DataFrame)
                 assert len(result) == 9
-                assert (Path("reports") / "optimizer_results.csv").exists()
+                assert (optimizer.SETTINGS.report_dir / "optimizer_results.csv").exists()
         finally:
             os.chdir(old_cwd)
 
