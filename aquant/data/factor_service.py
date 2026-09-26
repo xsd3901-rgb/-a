@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from config import SETTINGS
+
 from aquant.data.factor_store import AdjustmentFactorStore
 from aquant.data.safe_fetch import fetch_adjust_factors_with_timeout
 
@@ -13,8 +15,9 @@ class AdjustmentFactorService:
     复权事件完整保存，后续再统一决定回测使用哪一种点时复权口径。
     """
 
-    def __init__(self, store_root: str = "data_store") -> None:
-        self.store = AdjustmentFactorStore(store_root)
+    def __init__(self, store_root: str | None = None) -> None:
+        root = str(SETTINGS.data_store_dir) if store_root is None else store_root
+        self.store = AdjustmentFactorStore(root)
 
     def factors(
         self,
