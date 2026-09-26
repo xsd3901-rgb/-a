@@ -48,7 +48,10 @@ def audit_market_store(
     calendar: pd.DataFrame,
     lifecycle: pd.DataFrame | None = None,
     limit: int | None = None,
-    lookback_calendar_days: int = 400,
+    lookback_calendar_days: int = (
+        SETTINGS.feature_validation_calendar_days
+        + SETTINGS.feature_validation_warmup_calendar_days
+    ),
     min_coverage: float = 0.90,
 ) -> tuple[pd.DataFrame, dict]:
     """只检查本地行情文件，不触发任何网络请求。"""
@@ -118,9 +121,9 @@ def audit_market_store(
         delisting_date = life.get("delisting_date")
         name = str(life.get("name") or "")
 
-        expected_start = first_date
-        if earliest_allowed is not None:
-            expected_start = max(expected_start, earliest_allowed)
+        # 不能用文件自身 first_date 作为期望起点，否则“只剩最近30天”的
+        # 残缺文件也会被误判为 100% 覆盖。期望起点应由研究窗口/上市日决定。
+        expected_start = earliest_allowed if earliest_allowed is not None else first_date
         if pd.notna(listing_date):
             expected_start = max(
                 expected_start,
