@@ -516,3 +516,57 @@ reports/release_readiness.json
 ```
 
 因此项目交付后不需要靠猜测判断“现在能不能正式跑”，终端会直接告诉你还缺哪一步。
+
+
+## Windows 首次运行与完整准备
+
+完整项目放到本机后，Windows 用户优先双击：
+
+```text
+首次运行.bat
+```
+
+它会完成 Python/依赖/代码加载检查，执行一次本地就绪检查，然后启动网页终端。它**不会在你不知情的情况下自动跑几千只股票建库**。
+
+第一次打开网页后，可以点击：
+
+```text
+首次完整准备
+```
+
+该按钮按顺序执行：
+
+```text
+沪深全市场本地建库
+  ↓
+本地数据完整性审计
+  ↓
+200只研究样本的特征/WF/V1-V2/回测验收
+  ↓
+最终就绪检查
+```
+
+如果希望不用网页、直接在黑色窗口执行同一套流程，可以双击：
+
+```text
+全市场建库并验收.bat
+```
+
+或命令行运行：
+
+```powershell
+python main.py prepare-local --bootstrap-limit 0 --validation-limit 200 --horizon 10
+```
+
+其中 `--bootstrap-limit 0` 表示沪深全市场；研究验收默认先用 200 只控制首次耗时和免费接口压力。全部流程通过以后，再根据本地数据情况扩大验证范围。
+
+准备过程会写出：
+
+```text
+reports/local_prepare_steps.csv
+reports/local_prepare_summary.json
+reports/release_readiness.csv
+reports/release_readiness.json
+```
+
+之后日常使用只需要双击 `启动量化.bat`。
