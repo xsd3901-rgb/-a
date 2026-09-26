@@ -69,8 +69,12 @@ def scan_market(limit: int | None = None, refresh: bool = False) -> pd.DataFrame
             hist = provider.history(code, refresh=refresh)
             if len(hist) < SETTINGS.min_bars:
                 raise ValueError(f"K线不足: {len(hist)}")
-            signal = evaluate_latest(hist, benchmark_bars=benchmark)
-            if signal.score >= score_threshold:
+            signal = evaluate_latest(
+                hist,
+                benchmark_bars=benchmark,
+                fallback_name=name,
+            )
+            if signal.score >= score_threshold and signal.allowed:
                 results.append(
                     {
                         "代码": code,
@@ -82,6 +86,7 @@ def scan_market(limit: int | None = None, refresh: bool = False) -> pd.DataFrame
                         "环境分": market_score,
                         "相对沪深300_20日%": signal.rs20,
                         "风险": signal.risk,
+                        "风险过滤": signal.risk_reasons or "通过",
                         "ATR波动%": signal.atr_pct,
                         "止损参考": signal.stop,
                         "目标参考": signal.target,
@@ -102,7 +107,7 @@ def scan_market(limit: int | None = None, refresh: bool = False) -> pd.DataFrame
         result_df = result_df.head(SETTINGS.top_n).reset_index(drop=True)
         result_df.insert(0, "排名", range(1, len(result_df) + 1))
     else:
-        result_df = pd.DataFrame(columns=["排名", "代码", "名称", "交易日", "现价", "评分", "市场环境", "环境分", "相对沪深300_20日%", "风险", "ATR波动%", "止损参考", "目标参考", "信号原因"])
+        result_df = pd.DataFrame(columns=["排名", "代码", "名称", "交易日", "现价", "评分", "市场环境", "环境分", "相对沪深300_20日%", "风险", "风险过滤", "ATR波动%", "止损参考", "目标参考", "信号原因"])
 
     result_df.to_csv(SETTINGS.report_dir / "scan_latest.csv", index=False, encoding="utf-8-sig")
     if errors:
