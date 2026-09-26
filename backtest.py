@@ -7,6 +7,14 @@ import pandas as pd
 from aquant.data.context_service import MarketContextService
 from aquant.data.service import MarketDataService
 from aquant.research.market_regime import build_market_regime_history
+from aquant.risk.trading_rules import (
+    historical_is_st,
+    is_tradable_bar,
+    open_is_limit_up,
+    row_limit_prices,
+    sellable_bar,
+    trading_age,
+)
 from aquant.runtime.resources import current_profile
 from config import SETTINGS, ensure_directories
 from profile import load_strategy_profile
@@ -47,6 +55,83 @@ def _attach_market_regime(
     return out.drop(columns=["_signal_date", "trade_date"], errors="ignore")
 
 
+def _historical_universe(
+    provider: MarketDataService,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
+    refresh: bool,
+) -> pd.DataFrame:
+    """优先使用历史生命周期股票池，失败时退回当前沪深股票列表。"""
+    try:
+        stocks = provider.historical_securities(refresh=refresh).copy()
+        if stocks.empty:
+            raise RuntimeError("历史股票池为空")
+
+        stocks["listing_date"] = pd.to_datetime(
+            stocks.get("listing_date"), errors="coerce"
+        ).dt.normalize()
+        stocks["delisting_date"] = pd.to_datetime(
+            stocks.get("delisting_date"), errors="coerce"
+        ).dt.normalize()
+
+        listed = stocks["listing_date"].isna() | (stocks["listing_date"] <= end_date)
+        alive = stocks["delisting_date"].isna() | (stocks["delisting_date"] >= start_date)
+        stocks = stocks[listed & alive].copy()
+
+        keep = [
+            c
+            for c in [
+                "code",
+                "name",
+                "listing_date",
+                "delisting_date",
+                "market",
+                "board",
+            ]
+            if c in stocks.columns
+        ]
+        return stocks[keep].drop_duplicates("code").reset_index(drop=True)
+    except Exception as exc:
+        print(f"历史股票池暂不可用，退回当前沪深股票列表: {exc}")
+        stocks = provider.stock_list().copy()
+        stocks["listing_date"] = pd.NaT
+        stocks["delisting_date"] = pd.NaT
+        return stocks
+
+
+def _entry_allowed(
+    code: str,
+    name: str,
+    df: pd.DataFrame,
+    entry_idx: int,
+    listing_date: pd.Timestamp | None,
+) -> tuple[bool, str, object, float | None, float | None]:
+    row = df.iloc[entry_idx]
+
+    if not is_tradable_bar(row):
+        return False, "停牌或不可交易", None, None, None
+
+    if SETTINGS.exclude_st and historical_is_st(row, name):
+        return False, "历史ST状态", None, None, None
+
+    age = trading_age(df, entry_idx, listing_date)
+    rule, up_limit, down_limit = row_limit_prices(
+        code,
+        row,
+        fallback_name=name,
+        trading_days_since_listing=age,
+    )
+
+    if open_is_limit_up(
+        row,
+        up_limit,
+        up_limit_pct=rule.up_limit_pct,
+    ):
+        return False, "开盘涨停无法保证成交", rule, up_limit, down_limit
+
+    return True, "", rule, up_limit, down_limit
+
+
 def backtest_scored_stock(
     code: str,
     name: str,
@@ -55,44 +140,116 @@ def backtest_scored_stock(
     stop_atr_multiple: float,
     target_atr_multiple: float,
     max_hold_days: int,
+    *,
+    listing_date: str | pd.Timestamp | None = None,
+    signal_start_date: str | pd.Timestamp | None = None,
 ) -> list[dict]:
-    df = scored.reset_index(drop=True)
+    df = scored.reset_index(drop=True).copy()
+    if df.empty:
+        return []
+
+    df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.normalize()
+    listing_ts = (
+        pd.Timestamp(listing_date).normalize()
+        if listing_date is not None and pd.notna(listing_date)
+        else None
+    )
+    signal_start = (
+        pd.Timestamp(signal_start_date).normalize()
+        if signal_start_date is not None
+        else None
+    )
+
     trades: list[dict] = []
     i = max(60, SETTINGS.min_bars - 1)
 
-    while i < len(df) - 2:
+    while i < len(df) - 1:
         signal_row = df.iloc[i]
+        signal_date = pd.Timestamp(signal_row["date"]).normalize()
+
+        if signal_start is not None and signal_date < signal_start:
+            i += 1
+            continue
+
         if int(signal_row["score"]) < score_threshold:
             i += 1
             continue
 
+        if SETTINGS.exclude_st and historical_is_st(signal_row, name):
+            i += 1
+            continue
+
         entry_idx = i + 1
-        entry_price = float(df.iloc[entry_idx]["open"])
-        atr = float(signal_row["atr14"]) if pd.notna(signal_row["atr14"]) else entry_price * 0.03
+        allowed, blocked_reason, entry_rule, _, _ = _entry_allowed(
+            code,
+            name,
+            df,
+            entry_idx,
+            listing_ts,
+        )
+        if not allowed:
+            i += 1
+            continue
+
+        entry_row = df.iloc[entry_idx]
+        entry_price = float(entry_row["open"])
+        if entry_price <= 0:
+            i += 1
+            continue
+
+        atr = (
+            float(signal_row["atr14"])
+            if pd.notna(signal_row["atr14"])
+            else entry_price * 0.03
+        )
         stop_price = entry_price - stop_atr_multiple * atr
         target_price = entry_price + target_atr_multiple * atr
 
-        last_idx = min(entry_idx + max_hold_days - 1, len(df) - 1)
-        exit_idx = last_idx
-        exit_price = float(df.iloc[last_idx]["close"])
-        exit_reason = "观察窗口结束"
+        decision_end_idx = min(entry_idx + max_hold_days - 1, len(df) - 1)
+        exit_idx: int | None = None
+        exit_price: float | None = None
+        exit_reason = ""
 
-        for j in range(entry_idx, last_idx + 1):
+        for j in range(entry_idx, decision_end_idx + 1):
             day = df.iloc[j]
-            held = j - entry_idx + 1
+            age = trading_age(df, j, listing_ts)
+            rule, _, down_limit = row_limit_prices(
+                code,
+                day,
+                fallback_name=name,
+                trading_days_since_listing=age,
+            )
 
-            # 同一天同时触发止损/止盈时采用保守假设：先按止损处理
-            if float(day["low"]) <= stop_price:
+            if not sellable_bar(
+                day,
+                down_limit_price=down_limit,
+                down_limit_pct=rule.down_limit_pct,
+            ):
+                continue
+
+            open_price = float(day["open"])
+            low_price = float(day["low"])
+            high_price = float(day["high"])
+
+            # 同一天同时触发止损/止盈时采用保守假设：先按止损处理。
+            if low_price <= stop_price:
+                fill = stop_price
+                if open_price < stop_price:
+                    fill = open_price
+                if down_limit is not None:
+                    fill = max(fill, down_limit)
                 exit_idx = j
-                exit_price = stop_price
+                exit_price = float(fill)
                 exit_reason = "ATR止损"
                 break
-            if float(day["high"]) >= target_price:
+
+            if high_price >= target_price:
                 exit_idx = j
-                exit_price = target_price
+                exit_price = float(target_price)
                 exit_reason = "ATR目标"
                 break
 
+            held = j - entry_idx + 1
             if held >= SETTINGS.trend_exit_min_days:
                 ma10 = day["ma10"]
                 weak_trend = pd.notna(ma10) and float(day["close"]) < float(ma10)
@@ -107,19 +264,53 @@ def backtest_scored_stock(
                     exit_reason = "趋势转弱"
                     break
 
+        # 观察窗口到期时也必须真正可卖出；若一字跌停/停牌则顺延到下一可卖日。
+        if exit_idx is None:
+            for j in range(decision_end_idx, len(df)):
+                day = df.iloc[j]
+                age = trading_age(df, j, listing_ts)
+                rule, _, down_limit = row_limit_prices(
+                    code,
+                    day,
+                    fallback_name=name,
+                    trading_days_since_listing=age,
+                )
+                if not sellable_bar(
+                    day,
+                    down_limit_price=down_limit,
+                    down_limit_pct=rule.down_limit_pct,
+                ):
+                    continue
+                exit_idx = j
+                exit_price = float(day["close"])
+                exit_reason = (
+                    "观察窗口结束"
+                    if j == decision_end_idx
+                    else "观察窗口结束_延迟成交"
+                )
+                break
+
+        # 数据结束仍无法卖出，不把未完成持仓伪造成已完成交易。
+        if exit_idx is None or exit_price is None:
+            break
+
         gross_return = (exit_price / entry_price - 1) * 100
         net_return = gross_return - ROUND_TRIP_COST_PCT
+        delayed_exit_days = max(0, exit_idx - decision_end_idx)
+
         trades.append(
             {
                 "代码": code,
                 "名称": name,
-                "信号日": pd.to_datetime(signal_row["date"]).strftime("%Y-%m-%d"),
+                "信号日": signal_date.strftime("%Y-%m-%d"),
                 "买入日": pd.to_datetime(df.iloc[entry_idx]["date"]).strftime("%Y-%m-%d"),
                 "卖出日": pd.to_datetime(df.iloc[exit_idx]["date"]).strftime("%Y-%m-%d"),
                 "信号评分": int(signal_row["score"]),
                 "买入价": round(entry_price, 3),
                 "卖出价": round(exit_price, 3),
                 "持有交易日": exit_idx - entry_idx + 1,
+                "延迟卖出交易日": delayed_exit_days,
+                "买入规则": getattr(entry_rule, "rule_id", ""),
                 "退出原因": exit_reason,
                 "净收益%": round(net_return, 3),
             }
@@ -137,6 +328,9 @@ def backtest_stock(
     stop_atr_multiple: float | None = None,
     target_atr_multiple: float | None = None,
     max_hold_days: int | None = None,
+    *,
+    listing_date: str | pd.Timestamp | None = None,
+    signal_start_date: str | pd.Timestamp | None = None,
 ) -> list[dict]:
     profile = load_strategy_profile()
     scored = score_history(hist)
@@ -144,10 +338,26 @@ def backtest_stock(
         code=code,
         name=name,
         scored=scored,
-        score_threshold=int(score_threshold if score_threshold is not None else profile["score_threshold"]),
-        stop_atr_multiple=float(stop_atr_multiple if stop_atr_multiple is not None else profile["stop_atr_multiple"]),
-        target_atr_multiple=float(target_atr_multiple if target_atr_multiple is not None else profile["target_atr_multiple"]),
-        max_hold_days=int(max_hold_days if max_hold_days is not None else profile["max_hold_days"]),
+        score_threshold=int(
+            score_threshold
+            if score_threshold is not None
+            else profile["score_threshold"]
+        ),
+        stop_atr_multiple=float(
+            stop_atr_multiple
+            if stop_atr_multiple is not None
+            else profile["stop_atr_multiple"]
+        ),
+        target_atr_multiple=float(
+            target_atr_multiple
+            if target_atr_multiple is not None
+            else profile["target_atr_multiple"]
+        ),
+        max_hold_days=int(
+            max_hold_days if max_hold_days is not None else profile["max_hold_days"]
+        ),
+        listing_date=listing_date,
+        signal_start_date=signal_start_date,
     )
 
 
@@ -163,17 +373,27 @@ def run_backtest(
     ensure_directories()
     provider = MarketDataService()
     runtime = current_profile()
-    stocks = provider.stock_list()
+
+    market_end = provider.latest_trade_date()
+    signal_start = market_end - pd.Timedelta(days=SETTINGS.backtest_calendar_days)
+    fetch_start = signal_start - pd.Timedelta(
+        days=SETTINGS.backtest_warmup_calendar_days
+    )
+
+    stocks = _historical_universe(
+        provider,
+        signal_start,
+        market_end,
+        refresh=refresh,
+    )
     if limit and limit > 0:
         stocks = stocks.head(limit)
 
     regime_history = pd.DataFrame()
     try:
-        market_end = provider.latest_trade_date()
-        market_start = market_end - pd.Timedelta(days=max(500, int(SETTINGS.history_days * 2.1)))
         regime_history = build_market_regime_history(
             MarketContextService(),
-            market_start,
+            signal_start,
             market_end,
         )
         if not regime_history.empty:
@@ -190,14 +410,38 @@ def run_backtest(
     flush_every = max(1, runtime.batch_size)
 
     print(
+        f"历史股票池: {total} 只 | 正式信号区间 "
+        f"{signal_start:%Y-%m-%d} ~ {market_end:%Y-%m-%d}"
+    )
+    print(
         f"资源档位: {runtime.name} | 批次 {runtime.batch_size} | "
         f"回测并发上限 {runtime.backtest_workers}"
     )
 
     for i, row in stocks.iterrows():
         code, name = str(row["code"]), str(row["name"])
+        listing_date = row.get("listing_date", pd.NaT)
+        delisting_date = row.get("delisting_date", pd.NaT)
+
+        stock_start = fetch_start
+        if pd.notna(listing_date):
+            stock_start = max(stock_start, pd.Timestamp(listing_date).normalize())
+
+        stock_end = market_end
+        if pd.notna(delisting_date):
+            stock_end = min(stock_end, pd.Timestamp(delisting_date).normalize())
+
+        if stock_start >= stock_end:
+            continue
+
         try:
-            hist = provider.history(code, refresh=refresh)
+            hist = provider.history_range(
+                code,
+                stock_start.strftime("%Y-%m-%d"),
+                stock_end.strftime("%Y-%m-%d"),
+                refresh=refresh,
+                prefer_point_in_time=True,
+            )
             if len(hist) >= SETTINGS.min_bars:
                 all_trades.extend(
                     backtest_stock(
@@ -208,18 +452,31 @@ def run_backtest(
                         stop_atr_multiple=stop_atr_multiple,
                         target_atr_multiple=target_atr_multiple,
                         max_hold_days=max_hold_days,
+                        listing_date=listing_date,
+                        signal_start_date=signal_start,
                     )
                 )
         except Exception as exc:
             errors.append({"代码": code, "名称": name, "错误": str(exc)[:300]})
         finally:
             if (i + 1) % flush_every == 0:
-                print(f"回测进度 {i + 1}/{total}，累计交易 {len(all_trades)}，失败 {len(errors)}")
+                print(
+                    f"回测进度 {i + 1}/{total}，累计交易 {len(all_trades)}，"
+                    f"失败 {len(errors)}"
+                )
                 gc.collect()
 
     trades = _attach_market_regime(pd.DataFrame(all_trades), regime_history)
     if persist:
-        trades.to_csv(SETTINGS.report_dir / "backtest_trades.csv", index=False, encoding="utf-8-sig")
+        trades.to_csv(
+            SETTINGS.report_dir / "backtest_trades.csv",
+            index=False,
+            encoding="utf-8-sig",
+        )
         if errors:
-            pd.DataFrame(errors).to_csv(SETTINGS.report_dir / "backtest_errors.csv", index=False, encoding="utf-8-sig")
+            pd.DataFrame(errors).to_csv(
+                SETTINGS.report_dir / "backtest_errors.csv",
+                index=False,
+                encoding="utf-8-sig",
+            )
     return trades
