@@ -53,6 +53,7 @@ def run_local_prepare(
         _, bootstrap_summary = bootstrap_market(
             limit=bootstrap_limit,
             refresh=refresh,
+            progress=progress,
         )
         ok = int(bootstrap_summary.get("成功股票", 0))
         total = int(bootstrap_summary.get("股票池", 0))
