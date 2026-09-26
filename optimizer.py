@@ -7,6 +7,7 @@ import pandas as pd
 
 from aquant.data.service import MarketDataService
 from aquant.runtime.resources import current_profile
+from aquant.research.data_audit import run_data_audit
 from backtest import (
     _historical_universe,
     attach_execution_bars,
@@ -53,6 +54,20 @@ def optimize_parameters(
     训练与验证之间保留交易日 gap，只有验证期通过稳健性检查才更新活动参数。
     """
     ensure_directories()
+
+    # 参数优化可能更新正式活动参数，因此比普通研究命令更严格：
+    # 必须先有完整历史生命周期股票池和通过点时字段审计的本地数据。
+    _, audit_summary = run_data_audit(limit=limit)
+    audit_ok = (
+        audit_summary.get("状态") in {"通过", "可用但有警告"}
+        and audit_summary.get("股票池来源") == "security_lifecycle"
+    )
+    if not audit_ok:
+        raise RuntimeError(
+            "参数优化未启动：请先完成本地建库和正式数据审计，"
+            "确保历史股票池、pct_change、昨收、交易状态和历史ST字段可用。"
+        )
+
     provider = MarketDataService()
     runtime = current_profile()
 
