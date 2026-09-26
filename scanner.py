@@ -7,12 +7,15 @@ import pandas as pd
 
 from config import SETTINGS, ensure_directories
 from data import FreeAStockData
+from profile import load_strategy_profile
 from strategy import evaluate_latest
 
 
 def scan_market(limit: int | None = None, refresh: bool = False) -> pd.DataFrame:
     ensure_directories()
     provider = FreeAStockData()
+    profile = load_strategy_profile()
+    score_threshold = int(profile["score_threshold"])
     stocks = provider.stock_list()
     if limit and limit > 0:
         stocks = stocks.head(limit)
@@ -29,7 +32,7 @@ def scan_market(limit: int | None = None, refresh: bool = False) -> pd.DataFrame
             if len(hist) < SETTINGS.min_bars:
                 raise ValueError(f"K线不足: {len(hist)}")
             signal = evaluate_latest(hist)
-            if signal.score >= SETTINGS.score_threshold:
+            if signal.score >= score_threshold:
                 results.append(
                     {
                         "代码": code,
@@ -64,5 +67,5 @@ def scan_market(limit: int | None = None, refresh: bool = False) -> pd.DataFrame
     if errors:
         pd.DataFrame(errors).to_csv(SETTINGS.report_dir / "scan_errors.csv", index=False, encoding="utf-8-sig")
 
-    print(f"扫描完成：{datetime.now():%Y-%m-%d %H:%M:%S}，入选 {len(result_df)} 只")
+    print(f"扫描完成：{datetime.now():%Y-%m-%d %H:%M:%S}，入选 {len(result_df)} 只，活动阈值 {score_threshold}")
     return result_df
