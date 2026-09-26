@@ -117,7 +117,17 @@ class MarketDataService:
         out = df.rename(columns=rename).copy()
         keep = [
             c
-            for c in ["date", "open", "high", "low", "close", "volume", "amount", "turnover"]
+            for c in [
+                "date",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "amount",
+                "turnover",
+                "trade_status",
+            ]
             if c in out.columns
         ]
         out = out[keep]
