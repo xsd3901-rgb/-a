@@ -5,6 +5,7 @@ import argparse
 from backtest import run_backtest
 from config import SETTINGS
 from evaluator import evaluate_by_market_regime, evaluate_trades, metrics_frame
+from aquant.research.feature_validation import run_feature_validation
 from optimizer import optimize_parameters
 from profile import load_strategy_profile
 from scanner import scan_market
@@ -21,6 +22,10 @@ def build_parser() -> argparse.ArgumentParser:
     bt = sub.add_parser("backtest", help="执行历史回测")
     bt.add_argument("--limit", type=int, default=None, help="仅回测前N只；不填则回测全部")
     bt.add_argument("--refresh", action="store_true", help="强制刷新本地缓存")
+
+    features = sub.add_parser("features", help="验证特征有效性，不自动修改评分权重")
+    features.add_argument("--limit", type=int, default=200, help="验证股票数，默认200；0或不限制时可扩大")
+    features.add_argument("--refresh", action="store_true", help="强制刷新研究数据")
 
     opt = sub.add_parser("optimize", help="训练/验证分段的受控参数优化")
     opt.add_argument("--limit", type=int, default=100, help="优化样本股票数，默认100")
@@ -62,6 +67,19 @@ def main() -> None:
         if not by_regime.empty:
             print("\n按沪深市场环境拆分：")
             print(by_regime.to_string(index=False))
+        return
+
+    if args.command == "features":
+        limit = args.limit if args.limit and args.limit > 0 else None
+        result = run_feature_validation(limit=limit, refresh=args.refresh)
+        if result.empty:
+            print("特征验证没有生成有效结果。")
+        else:
+            print("\n特征验证结果（仅研究，不自动改评分）：")
+            print(result.head(40).to_string(index=False))
+            print(
+                f"\n完整结果已保存：{SETTINGS.report_dir / 'feature_validation.csv'}"
+            )
         return
 
     if args.command == "optimize":
