@@ -3,6 +3,8 @@ from __future__ import annotations
 import platform
 import sys
 
+from config import SETTINGS
+
 
 def main() -> None:
     print("=" * 60)
@@ -80,7 +82,7 @@ def main() -> None:
 
         from aquant.data.context_service import MarketContextService
 
-        context = MarketContextService()
+        context = MarketContextService(str(SETTINGS.data_store_dir))
         industry = context.industry_map()
         if industry.empty:
             raise RuntimeError("行业映射为空")
