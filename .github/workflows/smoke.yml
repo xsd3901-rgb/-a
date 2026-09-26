@@ -2,6 +2,18 @@ name: A-Quant Smoke Test
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "aquant/**"
+      - "tests/**"
+      - "scanner.py"
+      - "backtest.py"
+      - "optimizer.py"
+      - "diagnose.py"
+      - "config.py"
+      - "requirements.txt"
+      - ".github/workflows/smoke.yml"
 
 jobs:
   smoke:
@@ -24,16 +36,22 @@ jobs:
           from aquant.data.reference import ReferenceStore
           from aquant.data.context_service import MarketContextService
           from aquant.data.factor_service import AdjustmentFactorService
+          from aquant.data.universe_service import HistoricalUniverseService
+          from aquant.risk.trading_rules import price_limit_rule
           from aquant.runtime.resources import current_profile
           MarketDataService()
           ReferenceStore()
           MarketContextService()
           AdjustmentFactorService()
+          HistoricalUniverseService()
+          print(price_limit_rule("600000", "2026-09-25"))
           print(current_profile())
           print("core imports ok")
           PY
       - name: Offline data layer smoke test
         run: PYTHONPATH=. python tests/smoke_data_offline.py
+      - name: Offline universe and trading rules smoke test
+        run: PYTHONPATH=. python tests/smoke_universe_rules_offline.py
       - name: Offline pipeline smoke test
         run: PYTHONPATH=. python tests/smoke_pipeline_offline.py
       - name: Live free-data probe
