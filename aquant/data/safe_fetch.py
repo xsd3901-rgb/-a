@@ -500,3 +500,109 @@ def fetch_adjust_factors_with_timeout(
     if status != "ok":
         raise RuntimeError(str(payload))
     return payload if payload is not None else pd.DataFrame()
+
+
+def _security_lifecycle_worker(out_queue) -> None:
+    try:
+        import baostock as bs
+        from aquant.data.providers.base import normalize_symbol
+
+        login = bs.login()
+        if getattr(login, "error_code", "-1") != "0":
+            raise RuntimeError(f"BaoStock 登录失败: {login.error_code} {login.error_msg}")
+        try:
+            rs = bs.query_stock_basic()
+            if rs.error_code != "0":
+                raise RuntimeError(
+                    f"BaoStock 股票生命周期资料失败: {rs.error_code} {rs.error_msg}"
+                )
+            rows: list[list[str]] = []
+            while rs.next():
+                rows.append(rs.get_row_data())
+            raw = pd.DataFrame(rows, columns=rs.fields)
+        finally:
+            bs.logout()
+
+        if raw.empty:
+            frame = pd.DataFrame()
+        else:
+            if "type" in raw.columns:
+                raw = raw[raw["type"].astype(str).eq("1")].copy()
+
+            frame = pd.DataFrame(
+                {
+                    "code": raw["code"].map(normalize_symbol),
+                    "name": raw["code_name"].astype(str).str.strip(),
+                    "listing_date": pd.to_datetime(
+                        raw.get("ipoDate"), errors="coerce"
+                    ).dt.normalize(),
+                    "delisting_date": pd.to_datetime(
+                        raw.get("outDate"), errors="coerce"
+                    ).dt.normalize(),
+                    "status": raw.get("status", "").astype(str),
+                    "provider": "baostock",
+                }
+            )
+
+            def _board(code: str) -> str:
+                if code.startswith(("688", "689")):
+                    return "star"
+                if code.startswith(("300", "301")):
+                    return "chinext"
+                if code.startswith(("4", "8", "92")):
+                    return "bse"
+                if code.startswith(("6", "9")):
+                    return "sse_main"
+                if code.startswith(("0", "2")):
+                    return "szse_main"
+                return "other"
+
+            def _market(code: str) -> str:
+                if code.startswith(("6", "9")):
+                    return "SSE"
+                if code.startswith(("0", "2", "3")):
+                    return "SZSE"
+                if code.startswith(("4", "8", "92")):
+                    return "BSE"
+                return "OTHER"
+
+            frame["board"] = frame["code"].map(_board)
+            frame["market"] = frame["code"].map(_market)
+            frame = (
+                frame.drop_duplicates("code", keep="last")
+                .sort_values("code")
+                .reset_index(drop=True)
+            )
+
+        out_queue.put(("ok", frame))
+    except Exception as exc:
+        out_queue.put(("error", f"{type(exc).__name__}: {exc}"))
+
+
+def fetch_security_lifecycle_with_timeout(
+    timeout_seconds: float = 45.0,
+) -> pd.DataFrame:
+    """获取沪深股票上市/退市生命周期资料，并限制免费接口等待时间。"""
+    ctx = mp.get_context("spawn")
+    out_queue = ctx.Queue(maxsize=1)
+    proc = ctx.Process(target=_security_lifecycle_worker, args=(out_queue,), daemon=True)
+    proc.start()
+    proc.join(timeout_seconds)
+
+    if proc.is_alive():
+        proc.terminate()
+        proc.join(3)
+        raise TimeoutError(
+            f"BaoStock 股票生命周期资料请求超过 {timeout_seconds:.0f} 秒"
+        )
+
+    try:
+        status, payload = out_queue.get_nowait()
+    except queue.Empty as exc:
+        raise RuntimeError(
+            f"BaoStock 股票生命周期子进程未返回结果，退出码 {proc.exitcode}"
+        ) from exc
+
+    if status != "ok":
+        raise RuntimeError(str(payload))
+    return payload if payload is not None else pd.DataFrame()
