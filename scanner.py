@@ -5,7 +5,9 @@ from datetime import datetime
 
 import pandas as pd
 
+from aquant.data.context_service import MarketContextService
 from aquant.data.service import MarketDataService
+from aquant.research.market_regime import detect_market_regime
 from aquant.runtime.resources import current_profile
 from config import SETTINGS, ensure_directories
 from profile import load_strategy_profile
@@ -18,6 +20,26 @@ def scan_market(limit: int | None = None, refresh: bool = False) -> pd.DataFrame
     runtime = current_profile()
     profile = load_strategy_profile()
     score_threshold = int(profile["score_threshold"])
+
+    market_regime = "未知"
+    market_score = 0.0
+    try:
+        context = MarketContextService()
+        snapshot = detect_market_regime(context, provider.latest_trade_date())
+        market_regime = snapshot.regime
+        market_score = snapshot.score
+        snapshot.details.to_csv(
+            SETTINGS.report_dir / "market_environment_latest.csv",
+            index=False,
+            encoding="utf-8-sig",
+        )
+        print(
+            f"沪深市场环境: {market_regime} | 环境分 {market_score:.2f} | "
+            f"有效指数 {snapshot.index_count}"
+        )
+    except Exception as exc:
+        print(f"市场环境识别暂不可用，扫描继续使用原策略: {exc}")
+
     stocks = provider.stock_list()
     if limit and limit > 0:
         stocks = stocks.head(limit)
@@ -48,6 +70,8 @@ def scan_market(limit: int | None = None, refresh: bool = False) -> pd.DataFrame
                         "交易日": pd.to_datetime(hist.iloc[-1]["date"]).strftime("%Y-%m-%d"),
                         "现价": signal.close,
                         "评分": signal.score,
+                        "市场环境": market_regime,
+                        "环境分": market_score,
                         "风险": signal.risk,
                         "ATR波动%": signal.atr_pct,
                         "止损参考": signal.stop,
@@ -69,7 +93,7 @@ def scan_market(limit: int | None = None, refresh: bool = False) -> pd.DataFrame
         result_df = result_df.head(SETTINGS.top_n).reset_index(drop=True)
         result_df.insert(0, "排名", range(1, len(result_df) + 1))
     else:
-        result_df = pd.DataFrame(columns=["排名", "代码", "名称", "交易日", "现价", "评分", "风险", "ATR波动%", "止损参考", "目标参考", "信号原因"])
+        result_df = pd.DataFrame(columns=["排名", "代码", "名称", "交易日", "现价", "评分", "市场环境", "环境分", "风险", "ATR波动%", "止损参考", "目标参考", "信号原因"])
 
     result_df.to_csv(SETTINGS.report_dir / "scan_latest.csv", index=False, encoding="utf-8-sig")
     if errors:
