@@ -7,6 +7,7 @@ import duckdb
 import pandas as pd
 
 from aquant.data.context_store import MarketContextStore
+from aquant.data.factor_store import AdjustmentFactorStore
 from aquant.data.reference import ReferenceStore
 from aquant.data.schema import FIELDS
 from aquant.data.storage import MarketStore
@@ -112,6 +113,24 @@ def main() -> None:
         assert len(context.read_index_daily("sh000001")) == 3
         context.refresh_catalog()
 
+        factors = AdjustmentFactorStore(root)
+        factors.save(
+            "600000",
+            pd.DataFrame(
+                {
+                    "symbol": ["600000", "600000"],
+                    "event_date": pd.to_datetime(["2025-06-20", "2026-06-19"]),
+                    "fore_adjust_factor": [0.95, 1.0],
+                    "back_adjust_factor": [8.5, 9.0],
+                    "adjust_factor": [8.5, 9.0],
+                    "provider": ["test", "test"],
+                }
+            ),
+        )
+        assert len(factors.read("600000")) == 2
+        assert factors.latest_event_date("600000") == pd.Timestamp("2026-06-19")
+        factors.refresh_catalog()
+
         con = duckdb.connect(str(root / "aquant.duckdb"), read_only=True)
         try:
             assert con.execute("SELECT COUNT(*) FROM security_master").fetchone()[0] == 2
@@ -119,6 +138,7 @@ def main() -> None:
             assert con.execute("SELECT COUNT(*) FROM daily_qfq").fetchone()[0] == 3
             assert con.execute("SELECT COUNT(*) FROM industry_map").fetchone()[0] == 2
             assert con.execute("SELECT COUNT(*) FROM index_daily").fetchone()[0] == 3
+            assert con.execute("SELECT COUNT(*) FROM adjust_factor").fetchone()[0] == 2
         finally:
             con.close()
 
