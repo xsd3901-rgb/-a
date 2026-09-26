@@ -150,9 +150,26 @@ class MarketDataService:
         ]
         out = out[keep]
         out["date"] = pd.to_datetime(out["date"], errors="coerce")
-        required = ["date", "open", "high", "low", "close", "volume"]
-        out = out.dropna(subset=[c for c in required if c in out.columns])
-        return out.sort_values("date").drop_duplicates("date", keep="last").reset_index(drop=True)
+        out = out.dropna(subset=["date"])
+
+        # 停牌日必须保留在执行时间轴里。可交易行仍要求 OHLCV 完整；
+        # trade_status=0 的行即使价格为空，也用于阻断买卖和保留真实日期。
+        if "trade_status" in out.columns:
+            status = pd.to_numeric(out["trade_status"], errors="coerce")
+            suspended = status.eq(0)
+        else:
+            suspended = pd.Series(False, index=out.index)
+
+        core = [c for c in ["open", "high", "low", "close", "volume"] if c in out.columns]
+        if core:
+            complete_core = out[core].notna().all(axis=1)
+            out = out[suspended | complete_core].copy()
+
+        return (
+            out.sort_values("date")
+            .drop_duplicates("date", keep="last")
+            .reset_index(drop=True)
+        )
 
     def _fetch_with_fallback(
         self,
