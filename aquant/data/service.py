@@ -30,28 +30,34 @@ class MarketDataService:
 
     def stock_list(self) -> pd.DataFrame:
         errors: list[str] = []
-        try:
-            df = self.reference.stock_list(
-                fetcher=lambda: fetch_stock_list_with_timeout("eastmoney", 20.0),
-                max_age_hours=float(SETTINGS.cache_hours),
-            )
-        except Exception as exc:
-            errors.append(f"eastmoney/akshare: {exc}")
+        df = pd.DataFrame()
+        sources = (
+            ("eastmoney", 18.0, False),
+            ("exchange", 30.0, True),
+            ("baostock", 45.0, True),
+        )
+
+        for source, timeout_seconds, force in sources:
             try:
                 df = self.reference.stock_list(
-                    fetcher=lambda: fetch_stock_list_with_timeout("baostock", 35.0),
+                    fetcher=lambda s=source, t=timeout_seconds: fetch_stock_list_with_timeout(s, t),
                     max_age_hours=float(SETTINGS.cache_hours),
-                    force=True,
+                    force=force,
                 )
-            except Exception as exc2:
-                errors.append(f"baostock: {exc2}")
-                local = self.reference.store.read_security_master()
-                if local.empty:
-                    raise RuntimeError("股票基础库主源、备用源和本地快照全部不可用: " + " | ".join(errors)) from exc2
-                df = local
+                if df is not None and not df.empty:
+                    break
+            except Exception as exc:
+                errors.append(f"{source}: {exc}")
 
         if df is None or df.empty:
-            raise RuntimeError("全 A 股票基础库为空")
+            local = self.reference.store.read_security_master()
+            if not local.empty:
+                df = local
+            else:
+                raise RuntimeError(
+                    "股票基础库主源、交易所备用源、BaoStock 和本地快照全部不可用: "
+                    + " | ".join(errors)
+                )
 
         out = df.copy()
         out["code"] = out["code"].astype(str).str.zfill(6)
