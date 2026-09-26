@@ -282,7 +282,18 @@ def bootstrap_market(
     for _, stock_row in stocks.iterrows():
         stock = stock_row.to_dict()
         code = str(stock["code"]).zfill(6)
+        checkpoint_ok = False
         if bool(SETTINGS.bootstrap_resume) and not refresh and checkpoint.is_completed(code):
+            # 检查点只负责断点续跑，不能掩盖用户手工删除的数据文件。
+            try:
+                checkpoint_ok = (
+                    provider.store.latest_date(code, "none") is not None
+                    and provider.store.latest_date(code, "qfq") is not None
+                )
+            except Exception:
+                checkpoint_ok = False
+
+        if checkpoint_ok:
             payload = dict(checkpoint.state.completed.get(code) or {})
             payload.setdefault("代码", code)
             payload.setdefault("名称", str(stock.get("name") or ""))
