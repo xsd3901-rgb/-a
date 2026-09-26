@@ -255,9 +255,13 @@ def audit_market_store(
             FIELDS.preclose,
             tradable_window_mask,
         )
-        # 交易状态与历史 ST 是点时执行风控字段，要求整个观察时间轴可见。
+        # 交易状态要求整个执行时间轴可见；历史 ST 只要求可交易行完整，
+        # 因为停牌日本身已经被 trade_status=0 阻断所有买卖。
         trade_status_coverage = field_coverage(FIELDS.trade_status)
-        is_st_coverage = field_coverage(FIELDS.is_st)
+        is_st_coverage = field_coverage(
+            FIELDS.is_st,
+            tradable_window_mask,
+        )
 
         reasons: list[str] = []
         hard_fail = False
