@@ -21,6 +21,7 @@ def main() -> None:
 
     assert "总体状态" in summary
     assert "下一步" in summary
+    assert summary["版本"] == "1.0.0-rc1"
     assert summary["活动模型"] == "V1"
     assert summary["自动晋级"] is False
 
