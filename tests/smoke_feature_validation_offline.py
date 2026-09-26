@@ -8,9 +8,9 @@ from aquant.research.feature_validation import evaluate_feature_samples
 
 def main() -> None:
     dates = pd.bdate_range("2024-01-02", periods=420)
-    x = np.linspace(-2.5, 2.5, len(dates))
+    x = np.sin(np.linspace(0, 20 * np.pi, len(dates))) * 2.5
     trend = x > 0
-    noise = np.sin(np.linspace(0, 12 * np.pi, len(dates))) * 0.05
+    noise = np.cos(np.linspace(0, 13 * np.pi, len(dates))) * 0.05
 
     frame = pd.DataFrame(
         {
