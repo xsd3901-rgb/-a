@@ -16,6 +16,11 @@ class Settings:
     # 数据
     history_days: int = 320
     bootstrap_calendar_days: int = 1300
+    # 全市场建库：按机器资源自动选并发，但对免费接口额外设上限。
+    bootstrap_max_workers: int = 3
+    bootstrap_retry_attempts: int = 2
+    bootstrap_retry_backoff_seconds: float = 0.8
+    bootstrap_resume: bool = True
     cache_hours: int = 18
     adjust: str = "qfq"
     exclude_st: bool = True
