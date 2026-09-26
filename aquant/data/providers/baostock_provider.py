@@ -114,12 +114,13 @@ class BaoStockProvider(DailyBarProvider):
             "volume": FIELDS.volume,
             "amount": FIELDS.amount,
             "turn": FIELDS.turnover,
+            "tradestatus": FIELDS.trade_status,
         }
         out = raw.rename(columns=rename).copy()
         out[FIELDS.symbol] = out[FIELDS.symbol].map(normalize_symbol)
         out[FIELDS.trade_date] = pd.to_datetime(out[FIELDS.trade_date]).dt.normalize()
 
-        numeric = [FIELDS.open, FIELDS.high, FIELDS.low, FIELDS.close, FIELDS.volume, FIELDS.amount, FIELDS.turnover]
+        numeric = [FIELDS.open, FIELDS.high, FIELDS.low, FIELDS.close, FIELDS.volume, FIELDS.amount, FIELDS.turnover, FIELDS.trade_status]
         for col in numeric:
             if col in out.columns:
                 out[col] = pd.to_numeric(out[col], errors="coerce")
@@ -142,6 +143,7 @@ class BaoStockProvider(DailyBarProvider):
             FIELDS.volume,
             FIELDS.amount,
             FIELDS.turnover,
+            FIELDS.trade_status,
             FIELDS.provider,
             FIELDS.adapter,
             FIELDS.adjustment,
