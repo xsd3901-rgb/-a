@@ -6,6 +6,15 @@ concurrency:
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "aquant/**"
+      - "tests/**"
+      - "scanner.py"
+      - "strategy.py"
+      - "config.py"
+      - ".github/workflows/smoke.yml"
 
 jobs:
   smoke:
@@ -44,6 +53,8 @@ jobs:
         run: PYTHONPATH=. python tests/smoke_data_offline.py
       - name: Offline universe and trading rules smoke test
         run: PYTHONPATH=. python tests/smoke_universe_rules_offline.py
+      - name: Offline feature and regime smoke test
+        run: PYTHONPATH=. python tests/smoke_features_regime_offline.py
       - name: Offline pipeline smoke test
         run: PYTHONPATH=. python tests/smoke_pipeline_offline.py
       - name: Live free-data probe
