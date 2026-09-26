@@ -1,0 +1,42 @@
+from dataclasses import dataclass
+from pathlib import Path
+
+
+@dataclass(frozen=True)
+class Settings:
+    # 路径
+    cache_dir: Path = Path("data_cache")
+    report_dir: Path = Path("reports")
+
+    # 数据
+    history_days: int = 320
+    cache_hours: int = 18
+    adjust: str = "qfq"
+    exclude_st: bool = True
+    exclude_bj: bool = False
+
+    # 扫描
+    min_bars: int = 120
+    score_threshold: int = 68
+    top_n: int = 50
+    request_pause_seconds: float = 0.08
+
+    # 回测观察参数：不是选股硬条件
+    reference_hold_min_days: int = 5
+    reference_hold_max_days: int = 30
+    trend_exit_min_days: int = 3
+
+    # 风险/收益参数
+    stop_atr_multiple: float = 1.8
+    target_atr_multiple: float = 3.0
+
+    # 低内存
+    flush_every: int = 50
+
+
+SETTINGS = Settings()
+
+
+def ensure_directories() -> None:
+    SETTINGS.cache_dir.mkdir(parents=True, exist_ok=True)
+    SETTINGS.report_dir.mkdir(parents=True, exist_ok=True)
