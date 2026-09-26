@@ -102,6 +102,7 @@ def evaluate_feature_samples(
     samples: pd.DataFrame,
     *,
     train_ratio: float = 0.70,
+    split_date_override: str | pd.Timestamp | None = None,
 ) -> tuple[pd.DataFrame, pd.Timestamp | None]:
     """对已生成的特征样本做时间切分验证，不自动修改策略权重。"""
     if samples is None or samples.empty:
@@ -114,11 +115,14 @@ def evaluate_feature_samples(
     if len(dates) < 10:
         return pd.DataFrame(), None
 
-    split_pos = min(
-        len(dates) - 2,
-        max(1, int(len(dates) * float(train_ratio)) - 1),
-    )
-    split_date = pd.Timestamp(dates.iloc[split_pos]).normalize()
+    if split_date_override is not None:
+        split_date = pd.Timestamp(split_date_override).normalize()
+    else:
+        split_pos = min(
+            len(dates) - 2,
+            max(1, int(len(dates) * float(train_ratio)) - 1),
+        )
+        split_date = pd.Timestamp(dates.iloc[split_pos]).normalize()
 
     rows: list[dict] = []
     for feature, kind in FEATURE_SPECS.items():
@@ -292,11 +296,21 @@ def _research_universe(
 ) -> pd.DataFrame:
     try:
         stocks = provider.historical_securities(refresh=refresh).copy()
+        listing = (
+            stocks["listing_date"]
+            if "listing_date" in stocks.columns
+            else pd.Series(pd.NaT, index=stocks.index)
+        )
+        delisting = (
+            stocks["delisting_date"]
+            if "delisting_date" in stocks.columns
+            else pd.Series(pd.NaT, index=stocks.index)
+        )
         stocks["listing_date"] = pd.to_datetime(
-            stocks.get("listing_date"), errors="coerce"
+            listing, errors="coerce"
         ).dt.normalize()
         stocks["delisting_date"] = pd.to_datetime(
-            stocks.get("delisting_date"), errors="coerce"
+            delisting, errors="coerce"
         ).dt.normalize()
         listed = stocks["listing_date"].isna() | (
             stocks["listing_date"] <= end_date
@@ -343,16 +357,93 @@ def _flush_chunk(
     return rows
 
 
-def _load_compact_samples(work_dir: Path) -> pd.DataFrame:
+def _evaluate_feature_store(
+    work_dir: Path,
+    *,
+    train_ratio: float,
+) -> tuple[pd.DataFrame, pd.Timestamp | None, int]:
+    """按特征逐列读取 Parquet，避免全市场研究样本一次性进入内存。"""
     files = list(work_dir.glob("chunk_*.parquet"))
     if not files:
-        return pd.DataFrame()
+        return pd.DataFrame(), None, 0
+
     glob_path = str(work_dir / "chunk_*.parquet").replace("'", "''")
     con = duckdb.connect()
     try:
-        return con.execute(
-            f"SELECT * FROM read_parquet('{glob_path}', union_by_name=true)"
+        dates = con.execute(
+            f"""
+            SELECT DISTINCT date
+            FROM read_parquet('{glob_path}', union_by_name=true)
+            WHERE date IS NOT NULL
+            ORDER BY date
+            """
         ).df()
+        sample_count = int(
+            con.execute(
+                f"SELECT COUNT(*) FROM read_parquet('{glob_path}', union_by_name=true)"
+            ).fetchone()[0]
+        )
+
+        if len(dates) < 10:
+            return pd.DataFrame(), None, sample_count
+
+        date_series = pd.to_datetime(
+            dates["date"], errors="coerce"
+        ).dropna().sort_values().reset_index(drop=True)
+        split_pos = min(
+            len(date_series) - 2,
+            max(1, int(len(date_series) * float(train_ratio)) - 1),
+        )
+        split_date = pd.Timestamp(date_series.iloc[split_pos]).normalize()
+
+        rows: list[pd.DataFrame] = []
+        for feature in FEATURE_SPECS:
+            for horizon in HORIZONS:
+                target = f"fwd_ret_{horizon}d"
+                try:
+                    pair = con.execute(
+                        f"""
+                        SELECT date, "{feature}", "{target}"
+                        FROM read_parquet('{glob_path}', union_by_name=true)
+                        WHERE "{feature}" IS NOT NULL
+                          AND "{target}" IS NOT NULL
+                        """
+                    ).df()
+                except Exception:
+                    continue
+
+                if pair.empty:
+                    continue
+
+                one, _ = evaluate_feature_samples(
+                    pair,
+                    train_ratio=train_ratio,
+                    split_date_override=split_date,
+                )
+                if not one.empty:
+                    rows.append(one)
+
+        if not rows:
+            return pd.DataFrame(), split_date, sample_count
+
+        result = pd.concat(rows, ignore_index=True, sort=False)
+        result = result.drop_duplicates(
+            ["特征", "预测窗口"], keep="last"
+        )
+        order = {"方向一致": 0, "效应很弱": 1, "方向反转": 2, "样本不足": 3}
+        result["_order"] = result["稳定性"].map(order).fillna(9)
+        result["_abs_t"] = pd.to_numeric(
+            result["验证t值"], errors="coerce"
+        ).abs().fillna(0)
+        result = (
+            result.sort_values(
+                ["_order", "_abs_t", "预测窗口", "特征"],
+                ascending=[True, False, True, True],
+            )
+            .drop(columns=["_order", "_abs_t"])
+            .reset_index(drop=True)
+        )
+        return result, split_date, sample_count
     finally:
         con.close()
 
@@ -483,9 +574,8 @@ def run_feature_validation(
         chunk_no += 1
         total_rows += _flush_chunk(buffer, work_dir, chunk_no)
 
-    samples = _load_compact_samples(work_dir)
-    result, split_date = evaluate_feature_samples(
-        samples,
+    result, split_date, sample_count = _evaluate_feature_store(
+        work_dir,
         train_ratio=SETTINGS.feature_validation_train_ratio,
     )
     result.to_csv(
@@ -504,7 +594,7 @@ def run_feature_validation(
                 else "",
                 "股票池数量": len(stocks),
                 "有效股票数量": valid_stocks,
-                "样本行数": len(samples),
+                "样本行数": sample_count,
                 "错误数量": len(errors),
                 "说明": "仅验证特征稳定性，不自动修改正式选股评分权重",
             }
@@ -523,7 +613,7 @@ def run_feature_validation(
         )
 
     print(
-        f"特征验证完成：有效股票 {valid_stocks}，样本 {len(samples)}，"
+        f"特征验证完成：有效股票 {valid_stocks}，样本 {sample_count}，"
         f"结果 {len(result)} 行。"
     )
     return result
