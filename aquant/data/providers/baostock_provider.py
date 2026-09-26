@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from aquant.data.providers.base import DailyBarProvider, ProviderInfo, normalize_symbol, to_baostock_code
+from aquant.data.providers.base import DailyBarProvider, ProviderInfo, is_shsz_a_share, normalize_symbol, to_baostock_code
 from aquant.data.schema import FIELDS
 
 
@@ -57,7 +57,7 @@ class BaoStockProvider(DailyBarProvider):
                 "name": raw[name_col].astype(str).str.strip(),
             }
         )
-        out = out[out["symbol"].str.match(r"^(0|2|3|6|9)\d{5}$", na=False)]
+        out = out[out["symbol"].map(is_shsz_a_share)]
         return out.drop_duplicates("symbol").reset_index(drop=True)
 
     def fetch_daily(
