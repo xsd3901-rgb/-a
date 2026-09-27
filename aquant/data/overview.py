@@ -62,6 +62,18 @@ def data_overview(
         if not values.empty:
             calendar_source = str(values.index[0])
 
+    security_snapshot = ""
+    if not securities.empty and "snapshot_date" in securities.columns:
+        values = securities["snapshot_date"].dropna().astype(str)
+        if not values.empty:
+            security_snapshot = str(values.iloc[0])
+
+    calendar_snapshot = ""
+    if not calendar.empty and "snapshot_date" in calendar.columns:
+        values = calendar["snapshot_date"].dropna().astype(str)
+        if not values.empty:
+            calendar_snapshot = str(values.iloc[0])
+
     health = SourceHealthRegistry(root).snapshot()
     healthy = sum(row["status"] == "healthy" for row in health)
     cooling = sum(row["status"] == "cooldown" for row in health)
@@ -70,8 +82,10 @@ def data_overview(
         "summary": {
             "股票基础库": int(len(securities)),
             "股票池来源": security_source,
+            "股票池快照日期": security_snapshot,
             "交易日历记录": int(len(calendar)),
             "交易日历来源": calendar_source,
+            "交易日历快照日期": calendar_snapshot,
             "最新交易日": (
                 pd.Timestamp(latest).strftime("%Y-%m-%d")
                 if latest is not None
