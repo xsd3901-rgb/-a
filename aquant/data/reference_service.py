@@ -8,6 +8,7 @@ import pandas as pd
 from config import SETTINGS
 
 from aquant.data.reference import ReferenceStore
+from aquant.data.routing.router import DataSourceRouter
 from aquant.data.safe_fetch import fetch_trade_calendar_with_timeout
 from aquant.data.seed_reference import (
     load_security_seed,
@@ -21,6 +22,7 @@ class ReferenceDataService:
     def __init__(self, store_root: str | None = None) -> None:
         root = str(SETTINGS.data_store_dir) if store_root is None else store_root
         self.store = ReferenceStore(root)
+        self.router = DataSourceRouter(root)
         self._ensure_bundled_reference()
 
     def _ensure_bundled_reference(self) -> None:
@@ -98,31 +100,60 @@ class ReferenceDataService:
     ) -> pd.DataFrame:
         if end_date is None:
             end_date = (
-                pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None) + timedelta(days=370)
+                pd.Timestamp.now(tz="Asia/Shanghai")
+                .tz_localize(None)
+                + timedelta(days=370)
             ).strftime("%Y-%m-%d")
 
         errors: list[str] = []
-        for source in ("akshare", "baostock"):
+        source_timeout = {
+            "akshare": 20.0,
+            "baostock": 35.0,
+        }
+        sources = self.router.names(
+            list(source_timeout),
+            capability="calendar",
+        )
+        for source in sources:
+            started = time.monotonic()
             try:
-                source_timeout = 20.0 if source == "akshare" else 35.0
                 frame = fetch_trade_calendar_with_timeout(
                     source=source,
                     start_date=start_date,
                     end_date=end_date,
-                    timeout_seconds=max(timeout_seconds, source_timeout),
+                    timeout_seconds=max(
+                        timeout_seconds,
+                        source_timeout[source],
+                    ),
                 )
+                elapsed_ms = (
+                    time.monotonic() - started
+                ) * 1000.0
                 if frame is not None and not frame.empty:
                     self.store.save_trade_calendar(frame)
                     self.store.refresh_catalog()
+                    self.router.success(
+                        source,
+                        capability="calendar",
+                        elapsed_ms=elapsed_ms,
+                    )
                     return self.store.read_trade_calendar()
                 errors.append(f"{source}: empty")
             except Exception as exc:
                 errors.append(f"{source}: {exc}")
+                self.router.failure(
+                    source,
+                    capability="calendar",
+                    error=str(exc),
+                )
 
         local = self.store.read_trade_calendar()
         if not local.empty:
             return local
-        raise RuntimeError("交易日历获取失败: " + " | ".join(errors))
+        raise RuntimeError(
+            "交易日历获取失败: "
+            + (" | ".join(errors) if errors else "所有远端源均在冷却期")
+        )
 
     def trade_calendar(self, max_age_hours: float = 18.0, force: bool = False) -> pd.DataFrame:
         local = self.store.read_trade_calendar()
