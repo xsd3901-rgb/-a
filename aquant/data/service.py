@@ -423,37 +423,76 @@ class MarketDataService:
         market_date = self.latest_trade_date()
         key = (symbol, self.adjust)
 
+        # 日常扫描只需要最近 history_days 根 K 线。用自然日缓冲窗口
+        # 读取局部 Parquet，避免每次扫描都把 3~4 年历史整表载入内存。
+        calendar_days = max(
+            int(SETTINGS.history_days * 1.8),
+            SETTINGS.history_days + 60,
+        )
+        read_start = market_date - pd.Timedelta(days=calendar_days)
+        read_start_s = read_start.strftime("%Y-%m-%d")
+        market_date_s = market_date.strftime("%Y-%m-%d")
+
         latest = self.store.latest_date(symbol, self.adjust)
-        local = self.store.read_daily(symbol, self.adjust) if latest is not None else pd.DataFrame()
+        local = (
+            self.store.read_daily(
+                symbol,
+                self.adjust,
+                start_date=read_start_s,
+                end_date=market_date_s,
+            )
+            if latest is not None
+            else pd.DataFrame()
+        )
 
-        calendar_days = max(int(SETTINGS.history_days * 1.8), SETTINGS.history_days + 60)
         if refresh or latest is None:
-            start = market_date - pd.Timedelta(days=calendar_days)
+            fetch_start = read_start
         else:
-            start = latest + pd.Timedelta(days=1)
+            fetch_start = latest + pd.Timedelta(days=1)
 
-        should_fetch = refresh or latest is None or latest < market_date
+        should_fetch = (
+            refresh
+            or latest is None
+            or latest < market_date
+        )
         if key in self._attempted_today and not refresh:
             should_fetch = False
 
-        if should_fetch and start <= market_date:
+        if should_fetch and fetch_start <= market_date:
             self._attempted_today.add(key)
-            start_s = start.strftime("%Y-%m-%d")
-            end_s = market_date.strftime("%Y-%m-%d")
+            start_s = fetch_start.strftime("%Y-%m-%d")
             try:
-                self._fetch_with_fallback(symbol, start_s, end_s, self.adjust)
-                self._archive_unadjusted(symbol, start_s, end_s)
+                self._fetch_with_fallback(
+                    symbol,
+                    start_s,
+                    market_date_s,
+                    self.adjust,
+                )
+                self._archive_unadjusted(
+                    symbol,
+                    start_s,
+                    market_date_s,
+                )
             except Exception:
                 if local.empty:
                     raise
 
-        result = self.store.read_daily(symbol, self.adjust)
+        result = self.store.read_daily(
+            symbol,
+            self.adjust,
+            start_date=read_start_s,
+            end_date=market_date_s,
+        )
         if result.empty:
             result = local
+
         legacy = self._legacy_frame(result)
         if legacy.empty:
             return legacy
-        return legacy.tail(SETTINGS.history_days).reset_index(drop=True)
+        return (
+            legacy.tail(SETTINGS.history_days)
+            .reset_index(drop=True)
+        )
 
     def refresh_catalog(self) -> None:
         self.store.refresh_catalog()
