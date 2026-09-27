@@ -6,6 +6,22 @@ from datetime import datetime
 from pathlib import Path
 
 
+def _json_default(value):
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            return item()
+        except Exception:
+            pass
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        try:
+            return isoformat()
+        except Exception:
+            pass
+    return str(value)
+
+
 @dataclass
 class CheckpointState:
     signature: str
@@ -128,7 +144,12 @@ class JsonCheckpoint:
         }
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
         tmp.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                indent=2,
+                default=_json_default,
+            ),
             encoding="utf-8",
         )
         tmp.replace(self.path)
