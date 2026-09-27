@@ -20,9 +20,16 @@ def main() -> None:
     assert "数据中心" in text
     assert "策略研究" in text
     assert "数据源质量追踪" in text
+    assert "更新基础资料" in text
+    assert "数据中心概览" in text
     assert "V1规则消融" in text
     assert "progressBar" in text
-    assert "近期组合权益" in text
+
+    script = client.get("/static/app.js")
+    assert script.status_code == 200
+    script_text = script.get_data(as_text=True)
+    assert "近期组合权益" in script_text
+    assert "source_health" in script_text
 
     status = client.get("/api/status")
     assert status.status_code == 200
@@ -32,6 +39,9 @@ def main() -> None:
     assert "runtime" in payload
     assert "profile" in payload
     assert "paths" in payload
+    assert "data_center" in payload
+    assert "summary" in payload["data_center"]
+    assert "source_health" in payload["data_center"]
 
     profile = client.get("/api/profile")
     assert profile.status_code == 200
