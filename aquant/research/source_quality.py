@@ -420,10 +420,14 @@ def run_source_quality(
     crosscheck_limit: int | None = None,
     include_crosscheck: bool = True,
     max_events: int | None = 200_000,
+    data_root: str | Path | None = None,
+    report_dir: str | Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """只读本地数据，生成行情源可靠性、实际使用和多源差异报告。"""
     ensure_directories()
-    data_root = Path(SETTINGS.data_store_dir)
+    data_root = Path(data_root or SETTINGS.data_store_dir)
+    report_dir = Path(report_dir or SETTINGS.report_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
 
     events, providers = _provider_events(
         data_root,
@@ -519,23 +523,23 @@ def run_source_quality(
     }
 
     providers.to_csv(
-        SETTINGS.report_dir / "data_source_quality.csv",
+        report_dir / "data_source_quality.csv",
         index=False,
         encoding="utf-8-sig",
     )
     usage.to_csv(
-        SETTINGS.report_dir / "data_source_usage.csv",
+        report_dir / "data_source_usage.csv",
         index=False,
         encoding="utf-8-sig",
     )
     usage_detail.to_csv(
-        SETTINGS.report_dir / "data_source_usage_detail.csv",
+        report_dir / "data_source_usage_detail.csv",
         index=False,
         encoding="utf-8-sig",
     )
     if include_crosscheck:
         crosscheck.to_csv(
-            SETTINGS.report_dir / "data_source_crosscheck.csv",
+            report_dir / "data_source_crosscheck.csv",
             index=False,
             encoding="utf-8-sig",
         )
