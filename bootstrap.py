@@ -52,7 +52,7 @@ def _bootstrap_universe(
             .reset_index(drop=True)
         )
     except Exception:
-        stocks = provider.stock_list().copy()
+        stocks = provider.stock_list(refresh=refresh).copy()
         stocks["listing_date"] = pd.NaT
         stocks["delisting_date"] = pd.NaT
         return stocks
