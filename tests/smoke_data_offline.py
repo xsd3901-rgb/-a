@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import os
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import duckdb
 import pandas as pd
 
+from aquant.data import service as service_module
 from aquant.data.context_store import MarketContextStore
 from aquant.data.factor_store import AdjustmentFactorStore
 from aquant.data.quality import validate_bar_frame
@@ -31,6 +34,48 @@ def main() -> None:
         securities = reference.read_security_master()
         assert len(securities) == 2
         assert set(securities["code"]) == {"600000", "000001"}
+
+        # 过期本地快照不能截断远程降级链：
+        # 东方财富失败后必须继续尝试交易所源，而不是直接返回旧缓存。
+        data_service = service_module.MarketDataService(str(root))
+        stale_at = time.time() - 10 * 24 * 3600
+        os.utime(
+            data_service.reference.store.security_path,
+            (stale_at, stale_at),
+        )
+        original_fetch_stock_list = (
+            service_module.fetch_stock_list_with_timeout
+        )
+        source_calls: list[str] = []
+
+        def fake_fetch_stock_list(
+            source: str,
+            timeout_seconds: float,
+        ) -> pd.DataFrame:
+            del timeout_seconds
+            source_calls.append(source)
+            if source == "eastmoney":
+                raise RuntimeError("primary unavailable")
+            if source == "exchange":
+                return pd.DataFrame(
+                    [{"symbol": "600519", "name": "贵州茅台"}]
+                )
+            raise AssertionError(
+                f"unexpected fallback source: {source}"
+            )
+
+        service_module.fetch_stock_list_with_timeout = (
+            fake_fetch_stock_list
+        )
+        try:
+            fallback_securities = data_service.stock_list()
+        finally:
+            service_module.fetch_stock_list_with_timeout = (
+                original_fetch_stock_list
+            )
+
+        assert source_calls == ["eastmoney", "exchange"]
+        assert fallback_securities["code"].tolist() == ["600519"]
 
         reference.save_trade_calendar(
             pd.DataFrame(
