@@ -6,20 +6,6 @@ concurrency:
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "webapp.py"
-      - "main.py"
-      - "strategy.py"
-      - "bootstrap.py"
-      - "aquant/data/**"
-      - "aquant/research/source_quality.py"
-      - "aquant/research/strategy_ablation.py"
-      - "aquant/research/feature_validation.py"
-      - "tests/**"
-      - "README.md"
-      - ".github/workflows/smoke.yml"
 
 jobs:
   smoke:
