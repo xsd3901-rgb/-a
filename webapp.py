@@ -172,6 +172,11 @@ def _execute_task(job_id: str, action: str, payload: dict) -> None:
             frame = run_feature_validation(
                 limit=feature_limit,
                 refresh=refresh,
+                progress=lambda message: _set_job(
+                    job_id,
+                    status="running",
+                    message=message,
+                ),
             )
             result = {
                 "summary": {"结果行数": len(frame)},
