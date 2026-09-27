@@ -6,6 +6,13 @@ concurrency:
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "webapp.py"
+      - "tests/smoke_webapp_offline.py"
+      - "README.md"
+      - ".github/workflows/smoke.yml"
 
 jobs:
   smoke:
