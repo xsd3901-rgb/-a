@@ -112,15 +112,15 @@ def _evaluate_one(
     )
     if weight >= 0:
         marginal_condition = (
-            f"({full_score} >= {threshold}) "
-            f"AND ({ablated_score} < {threshold})"
+            f"(full_score >= {threshold}) "
+            f"AND (ablated_score < {threshold})"
         )
         helpful_multiplier = 1.0
         marginal_type = "规则新增入选"
     else:
         marginal_condition = (
-            f"({full_score} < {threshold}) "
-            f"AND ({ablated_score} >= {threshold})"
+            f"(full_score < {threshold}) "
+            f"AND (ablated_score >= {threshold})"
         )
         helpful_multiplier = -1.0
         marginal_type = "惩罚排除样本"
