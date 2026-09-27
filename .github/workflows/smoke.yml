@@ -10,7 +10,10 @@ on:
     branches: [main]
     paths:
       - "webapp.py"
-      - "tests/smoke_webapp_offline.py"
+      - "bootstrap.py"
+      - "aquant/data/**"
+      - "aquant/research/source_quality.py"
+      - "tests/**"
       - "README.md"
       - ".github/workflows/smoke.yml"
 
@@ -65,6 +68,8 @@ jobs:
         run: PYTHONPATH=. python tests/smoke_data_audit_fallback_offline.py
       - name: Offline targeted data repair smoke test
         run: PYTHONPATH=. python tests/smoke_data_repair_offline.py
+      - name: Offline source-quality tracking smoke test
+        run: PYTHONPATH=. python tests/smoke_source_quality_offline.py
       - name: Offline universe and trading rules smoke test
         run: PYTHONPATH=. python tests/smoke_universe_rules_offline.py
       - name: Offline execution rules smoke test
