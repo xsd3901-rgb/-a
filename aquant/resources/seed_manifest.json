@@ -1,0 +1,25 @@
+{
+  "purpose": "Bootstrap-only reference snapshots for first-run resilience. Formal validation still requires normal local audits and lifecycle checks.",
+  "security_master": {
+    "rows": 5208,
+    "snapshot_date": "2026-06-02",
+    "upstream": "whz06/deep-learning2026final-lab/train_li/data/basic.csv",
+    "fields": [
+      "code",
+      "name",
+      "listing_date",
+      "exchange",
+      "board"
+    ]
+  },
+  "trade_calendar": {
+    "rows": 6543,
+    "range": [
+      "2000-01-04",
+      "2026-12-31"
+    ],
+    "snapshot_date": "2026-06-02",
+    "upstream": "whz06/deep-learning2026final-lab/train_li/data/trade_cal.csv",
+    "note": "Only actual SSE open dates are bundled; these are used as the shared SH/SZ trading-day seed."
+  }
+}
