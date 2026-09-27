@@ -69,6 +69,7 @@
       <div class="group">
         <div class="group-title">数据中心</div>
         <div class="actions">
+          <button class="task-btn" onclick="runTask('refresh_reference')">更新基础资料</button>
           <button class="teal task-btn" onclick="runTask('bootstrap')">更新本地数据库</button>
           <button class="task-btn" onclick="runTask('audit_data')">数据完整性审计</button>
           <button class="task-btn" onclick="runTask('source_quality')">数据源质量追踪</button>
@@ -130,6 +131,21 @@
       </section>
     </main>
   </div>
+
+  <section class="card reports-card" id="dataCenterCard">
+    <div class="section-title">
+      <div>
+        <b>数据中心概览</b>
+        <div class="mini-note">本地库存、交易日历和数据源健康状态。远端异常不会阻断本地读取。</div>
+      </div>
+      <div class="report-head">
+        <span class="pill" id="dataCenterState">加载中</span>
+      </div>
+    </div>
+    <div id="dataCenterSummary"></div>
+    <div class="block-title">数据源健康</div>
+    <div id="sourceHealth">加载中...</div>
+  </section>
 
   <section class="card reports-card">
     <div class="section-title">
