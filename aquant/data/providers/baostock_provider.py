@@ -2,49 +2,50 @@ from __future__ import annotations
 
 import pandas as pd
 
-from aquant.data.providers.base import DailyBarProvider, ProviderInfo, is_shsz_a_share, normalize_symbol, to_baostock_code
+from aquant.data.providers.base import (
+    DailyBarProvider,
+    ProviderInfo,
+    is_shsz_a_share,
+    normalize_symbol,
+    to_baostock_code,
+)
+from aquant.data.providers.baostock_session import BAOSTOCK_SESSION
 from aquant.data.schema import FIELDS
 
 
 class BaoStockProvider(DailyBarProvider):
-    """BaoStock 历史日线适配器，主要用于沪深 A 股历史数据和交叉校验。"""
+    """BaoStock 历史日线适配器。
 
-    info = ProviderInfo(provider="baostock", adapter="baostock-python", volume_unit="share")
+    使用进程内复用会话，避免全市场下载时每只股票都 login/logout。
+    """
+
+    info = ProviderInfo(
+        provider="baostock",
+        adapter="baostock-python",
+        volume_unit="share",
+    )
 
     def fetch_stock_list(self) -> pd.DataFrame:
-        """BaoStock 股票基础列表备用源。
-
-        BaoStock 的证券基础资料包含指数、股票、基金等，这里只保留正常上市股票。
-        北京证券交易所覆盖能力不足，因此它主要作为沪深市场的独立降级源。
-        """
-        try:
-            import baostock as bs
-        except ImportError as exc:
-            raise RuntimeError("缺少 baostock 依赖，请先安装 requirements.txt") from exc
-
-        login = bs.login()
-        if getattr(login, "error_code", "-1") != "0":
-            raise RuntimeError(f"BaoStock 登录失败: {login.error_code} {login.error_msg}")
-
-        try:
+        def query(bs):
             rs = bs.query_stock_basic()
             if rs.error_code != "0":
-                raise RuntimeError(f"BaoStock 股票基础资料获取失败: {rs.error_code} {rs.error_msg}")
-
+                raise RuntimeError(
+                    f"BaoStock 股票基础资料获取失败: "
+                    f"{rs.error_code} {rs.error_msg}"
+                )
             rows: list[list[str]] = []
             while rs.next():
                 rows.append(rs.get_row_data())
-            raw = pd.DataFrame(rows, columns=rs.fields)
-        finally:
-            bs.logout()
+            return pd.DataFrame(rows, columns=rs.fields)
 
+        raw = BAOSTOCK_SESSION.run(query)
         if raw.empty:
             return pd.DataFrame(columns=["symbol", "name"])
 
-        code_col = "code"
-        name_col = "code_name"
-        if code_col not in raw.columns or name_col not in raw.columns:
-            raise RuntimeError(f"BaoStock 股票基础资料字段异常: {list(raw.columns)}")
+        if "code" not in raw.columns or "code_name" not in raw.columns:
+            raise RuntimeError(
+                f"BaoStock 股票基础资料字段异常: {list(raw.columns)}"
+            )
 
         if "type" in raw.columns:
             raw = raw[raw["type"].astype(str).eq("1")]
@@ -53,12 +54,16 @@ class BaoStockProvider(DailyBarProvider):
 
         out = pd.DataFrame(
             {
-                "symbol": raw[code_col].map(normalize_symbol),
-                "name": raw[name_col].astype(str).str.strip(),
+                "symbol": raw["code"].map(normalize_symbol),
+                "name": raw["code_name"].astype(str).str.strip(),
             }
         )
         out = out[out["symbol"].map(is_shsz_a_share)]
-        return out.drop_duplicates("symbol").reset_index(drop=True)
+        return (
+            out.drop_duplicates("symbol")
+            .sort_values("symbol")
+            .reset_index(drop=True)
+        )
 
     def fetch_daily(
         self,
@@ -67,22 +72,21 @@ class BaoStockProvider(DailyBarProvider):
         end_date: str,
         adjust: str = "none",
     ) -> pd.DataFrame:
-        try:
-            import baostock as bs
-        except ImportError as exc:
-            raise RuntimeError("缺少 baostock 依赖，请先安装 requirements.txt") from exc
-
-        adjust_flag = {"none": "3", "qfq": "2", "hfq": "1"}.get(adjust)
+        adjust_flag = {
+            "none": "3",
+            "qfq": "2",
+            "hfq": "1",
+        }.get(adjust)
         if adjust_flag is None:
             raise ValueError(f"不支持的复权方式: {adjust}")
 
         code = to_baostock_code(symbol)
-        login = bs.login()
-        if getattr(login, "error_code", "-1") != "0":
-            raise RuntimeError(f"BaoStock 登录失败: {login.error_code} {login.error_msg}")
+        fields = (
+            "date,code,open,high,low,close,preclose,volume,"
+            "amount,turn,tradestatus,pctChg,isST"
+        )
 
-        fields = "date,code,open,high,low,close,preclose,volume,amount,turn,tradestatus,pctChg,isST"
-        try:
+        def query(bs):
             rs = bs.query_history_k_data_plus(
                 code,
                 fields,
@@ -92,15 +96,16 @@ class BaoStockProvider(DailyBarProvider):
                 adjustflag=adjust_flag,
             )
             if rs.error_code != "0":
-                raise RuntimeError(f"BaoStock 日线获取失败: {rs.error_code} {rs.error_msg}")
-
+                raise RuntimeError(
+                    f"BaoStock 日线获取失败: "
+                    f"{rs.error_code} {rs.error_msg}"
+                )
             rows: list[list[str]] = []
             while rs.next():
                 rows.append(rs.get_row_data())
-            raw = pd.DataFrame(rows, columns=rs.fields)
-        finally:
-            bs.logout()
+            return pd.DataFrame(rows, columns=rs.fields)
 
+        raw = BAOSTOCK_SESSION.run(query)
         if raw.empty:
             return pd.DataFrame()
 
@@ -120,19 +125,40 @@ class BaoStockProvider(DailyBarProvider):
             "isST": FIELDS.is_st,
         }
         out = raw.rename(columns=rename).copy()
-        out[FIELDS.symbol] = out[FIELDS.symbol].map(normalize_symbol)
-        out[FIELDS.trade_date] = pd.to_datetime(out[FIELDS.trade_date]).dt.normalize()
+        out[FIELDS.symbol] = out[FIELDS.symbol].map(
+            normalize_symbol
+        )
+        out[FIELDS.trade_date] = pd.to_datetime(
+            out[FIELDS.trade_date],
+            errors="coerce",
+        ).dt.normalize()
 
-        numeric = [FIELDS.open, FIELDS.high, FIELDS.low, FIELDS.close, FIELDS.preclose, FIELDS.volume, FIELDS.amount, FIELDS.turnover, FIELDS.pct_change, FIELDS.trade_status, FIELDS.is_st]
+        numeric = [
+            FIELDS.open,
+            FIELDS.high,
+            FIELDS.low,
+            FIELDS.close,
+            FIELDS.preclose,
+            FIELDS.volume,
+            FIELDS.amount,
+            FIELDS.turnover,
+            FIELDS.pct_change,
+            FIELDS.trade_status,
+            FIELDS.is_st,
+        ]
         for col in numeric:
             if col in out.columns:
-                out[col] = pd.to_numeric(out[col], errors="coerce")
+                out[col] = pd.to_numeric(
+                    out[col],
+                    errors="coerce",
+                )
 
-        # BaoStock 日线 volume 原生单位就是“股”，无需换算。
         out[FIELDS.provider] = self.info.provider
         out[FIELDS.adapter] = self.info.adapter
         out[FIELDS.adjustment] = adjust
-        out[FIELDS.fetched_at] = pd.Timestamp.now(tz="Asia/Shanghai").isoformat()
+        out[FIELDS.fetched_at] = pd.Timestamp.now(
+            tz="Asia/Shanghai"
+        ).isoformat()
         out[FIELDS.data_version] = "1"
         out[FIELDS.quality_status] = "raw"
 
@@ -157,4 +183,8 @@ class BaoStockProvider(DailyBarProvider):
             FIELDS.data_version,
             FIELDS.quality_status,
         ]
-        return out[[c for c in ordered if c in out.columns]].sort_values(FIELDS.trade_date).reset_index(drop=True)
+        return (
+            out[[c for c in ordered if c in out.columns]]
+            .sort_values(FIELDS.trade_date)
+            .reset_index(drop=True)
+        )
