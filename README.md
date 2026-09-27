@@ -747,3 +747,41 @@ reports/backtest_partial.csv
 - 小屏幕会自动切换单列布局。
 
 此次调整只改变网页交互与展示，不改变策略评分、回测逻辑和模型晋级规则。
+
+
+## V1规则消融
+
+策略优化不直接靠“感觉调权重”。V1 评分已经拆成 13 条可审计规则，每条规则在研究缓存中保存自己的实际加分/扣分贡献。
+
+重新生成一次研究样本：
+
+```powershell
+python main.py features --limit 200 --refresh
+```
+
+随后运行：
+
+```powershell
+python main.py ablation
+```
+
+系统会在时间后段验证样本上逐条移除规则，比较：
+
+- 完整 V1 与移除该规则后的入选数量；
+- 完整 V1 与消融后的平均未来收益；
+- 真正因为这条规则而“跨过/跌破评分阈值”的边际样本；
+- 正向规则新增样本的未来收益；
+- 惩罚规则成功排除样本的未来收益；
+- 5 / 10 / 20 日三个窗口是否方向一致。
+
+输出：
+
+```text
+reports/strategy_ablation_v1.csv
+reports/strategy_ablation_v1_summary.csv
+reports/strategy_ablation_v1_summary.json
+```
+
+网页端位于 **策略研究 → V1规则消融**。
+
+这一步只做诊断，不自动修改正式 V1 权重。规则即使显示“需要重点复核”，也还要经过后续样本外、Walk-Forward 和真实成交回测，才允许进入参数调整阶段。
