@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import argparse
 
+import pandas as pd
+
 from backtest import run_backtest
 from bootstrap import bootstrap_market
 from config import SETTINGS
 from evaluator import evaluate_by_market_regime, evaluate_trades, metrics_frame
 from eastmoney_formula import write_formula
+from aquant.data.overview import data_overview
+from aquant.data.reference_refresh import refresh_reference_data
 from aquant.models.registry import model_status
 from aquant.research.feature_validation import run_feature_validation
 from aquant.research.data_audit import run_data_audit
@@ -37,6 +41,8 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--refresh", action="store_true", help="强制刷新远端数据")
 
     sub.add_parser("readiness", help="检查代码、依赖、本地数据和研究验收是否就绪")
+    sub.add_parser("data-status", help="查看本地数据库存和数据源健康状态")
+    sub.add_parser("refresh-reference", help="单独更新股票基础表、交易日历和历史生命周期")
 
     audit = sub.add_parser("audit-data", help="审计本地行情完整性，不访问网络")
     audit.add_argument("--limit", type=int, default=None, help="仅检查前N个本地股票文件")
@@ -132,6 +138,32 @@ def main() -> None:
         print("\n汇总：")
         for key, value in summary.items():
             print(f"{key}: {value}")
+        return
+
+    if args.command == "data-status":
+        overview = data_overview()
+        print("\n数据中心概览：")
+        for key, value in overview.get("summary", {}).items():
+            print(f"{key}: {value}")
+        health = overview.get("source_health") or []
+        if health:
+            print("\n数据源健康：")
+            print(pd.DataFrame(health).to_string(index=False))
+        return
+
+    if args.command == "refresh-reference":
+        frame, summary, health = refresh_reference_data(
+            progress=print,
+        )
+        print("\n基础资料更新汇总：")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        if not frame.empty:
+            print("\n更新明细：")
+            print(frame.to_string(index=False))
+        if health:
+            print("\n数据源健康：")
+            print(pd.DataFrame(health).to_string(index=False))
         return
 
     if args.command == "audit-data":
