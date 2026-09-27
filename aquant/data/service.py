@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 import pandas as pd
 
@@ -13,6 +14,7 @@ from aquant.data.reference_service import ReferenceDataService
 from aquant.data.schema import FIELDS
 from aquant.data.safe_fetch import fetch_stock_list_with_timeout
 from aquant.data.storage import MarketStore
+from aquant.data.source_quality import SourceQualityLog
 from aquant.data.universe_service import HistoricalUniverseService
 from config import SETTINGS
 
@@ -33,6 +35,7 @@ class MarketDataService:
         self.primary = EastMoneyAKShareProvider()
         self.backup = BaoStockProvider()
         self.store = MarketStore(root)
+        self.source_quality = SourceQualityLog(self.store.paths.root)
         self.reference = ReferenceDataService(root)
         self.universe = HistoricalUniverseService(root)
         self.adjust = SETTINGS.adjust if SETTINGS.adjust in {"none", "qfq", "hfq"} else "qfq"
@@ -196,7 +199,8 @@ class MarketDataService:
             if prefer_point_in_time
             else (self.primary, self.backup)
         )
-        for provider in providers:
+        for attempt_order, provider in enumerate(providers, start=1):
+            started = time.monotonic()
             try:
                 gate = (
                     _BAOSTOCK_GATE
@@ -210,25 +214,107 @@ class MarketDataService:
                         end_date,
                         adjust=adjust,
                     )
+
+                elapsed_ms = (time.monotonic() - started) * 1000.0
                 if frame is None or frame.empty:
-                    errors.append(f"{provider.info.provider}: empty")
+                    detail = "empty"
+                    errors.append(
+                        f"{provider.info.provider}: {detail}"
+                    )
+                    self.source_quality.record(
+                        symbol=symbol,
+                        provider=provider.info.provider,
+                        adapter=provider.info.adapter,
+                        adjust=adjust,
+                        start_date=start_date,
+                        end_date=end_date,
+                        attempt_order=attempt_order,
+                        outcome="empty",
+                        rows=0,
+                        elapsed_ms=elapsed_ms,
+                        prefer_point_in_time=prefer_point_in_time,
+                        detail=detail,
+                    )
                     continue
 
-                self.store.save_raw(frame, provider.info.provider, symbol, adjust)
+                self.store.save_raw(
+                    frame,
+                    provider.info.provider,
+                    symbol,
+                    adjust,
+                )
                 issues = validate_bar_frame(frame)
-                fatal = [item for item in issues if item.severity == "error"]
+                fatal = [
+                    item
+                    for item in issues
+                    if item.severity == "error"
+                ]
                 if fatal:
+                    detail = "; ".join(
+                        item.message for item in fatal
+                    )
                     errors.append(
-                        f"{provider.info.provider}: " + "; ".join(item.message for item in fatal)
+                        f"{provider.info.provider}: {detail}"
+                    )
+                    self.source_quality.record(
+                        symbol=symbol,
+                        provider=provider.info.provider,
+                        adapter=provider.info.adapter,
+                        adjust=adjust,
+                        start_date=start_date,
+                        end_date=end_date,
+                        attempt_order=attempt_order,
+                        outcome="quality_fail",
+                        rows=len(frame),
+                        elapsed_ms=elapsed_ms,
+                        prefer_point_in_time=prefer_point_in_time,
+                        detail=detail,
                     )
                     continue
 
                 clean = frame.copy()
                 clean[FIELDS.quality_status] = "ok"
-                self.store.save_standard(clean, symbol, adjust)
+                self.store.save_standard(
+                    clean,
+                    symbol,
+                    adjust,
+                )
+                self.source_quality.record(
+                    symbol=symbol,
+                    provider=provider.info.provider,
+                    adapter=provider.info.adapter,
+                    adjust=adjust,
+                    start_date=start_date,
+                    end_date=end_date,
+                    attempt_order=attempt_order,
+                    outcome="success",
+                    rows=len(clean),
+                    elapsed_ms=elapsed_ms,
+                    prefer_point_in_time=prefer_point_in_time,
+                )
                 return clean
             except Exception as exc:
-                errors.append(f"{provider.info.provider}: {exc}")
+                elapsed_ms = (
+                    time.monotonic() - started
+                ) * 1000.0
+                detail = str(exc)[:1000]
+                errors.append(
+                    f"{provider.info.provider}: {detail}"
+                )
+                self.source_quality.record(
+                    symbol=symbol,
+                    provider=provider.info.provider,
+                    adapter=provider.info.adapter,
+                    adjust=adjust,
+                    start_date=start_date,
+                    end_date=end_date,
+                    attempt_order=attempt_order,
+                    outcome="error",
+                    rows=0,
+                    elapsed_ms=elapsed_ms,
+                    prefer_point_in_time=prefer_point_in_time,
+                    detail=detail,
+                )
 
         raise RuntimeError(f"{symbol} 行情获取失败: " + " | ".join(errors))
 
