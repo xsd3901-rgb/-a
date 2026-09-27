@@ -42,6 +42,8 @@ if not exist "%CD%\webapp.py" goto FAIL
 if not exist "%CD%\requirements.txt" goto FAIL
 if not exist "%CD%\aquant" goto FAIL
 if not exist "%CD%\AQuant_FirstRun.cmd" goto FAIL
+if not exist "%CD%\AQuant_Start.cmd" goto FAIL
+if not exist "%CD%\AQuant_FullMarket_Acceptance.cmd" goto FAIL
 
 echo SUCCESS
 echo Project installed/updated in:
