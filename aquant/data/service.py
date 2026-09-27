@@ -406,7 +406,13 @@ class MarketDataService:
                 next_date = latest + pd.Timedelta(days=1)
                 archive_start = max(pd.Timestamp(start_date), next_date).strftime("%Y-%m-%d")
             if archive_start <= end_date:
-                self._fetch_with_fallback(symbol, archive_start, end_date, "none")
+                self._fetch_with_fallback(
+                    symbol,
+                    archive_start,
+                    end_date,
+                    "none",
+                    prefer_point_in_time=True,
+                )
         except Exception:
             pass
 
