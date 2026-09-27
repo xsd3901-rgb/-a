@@ -20,6 +20,7 @@ from aquant.research.local_prepare import run_local_prepare
 from aquant.research.readiness import release_readiness
 from aquant.research.system_validation import run_system_validation
 from aquant.research.stock_detail import stock_detail
+from aquant.research.source_quality import run_source_quality
 from aquant.research.portfolio import simulate_portfolio
 from aquant.research.walk_forward import run_walk_forward
 from aquant.runtime.resources import current_memory_gb, current_profile
@@ -94,6 +95,24 @@ def _execute_task(job_id: str, action: str, payload: dict) -> None:
             result = {
                 "summary": summary,
                 "rows": _records(frame, 50),
+            }
+        elif action == "source_quality":
+            providers, usage, crosscheck, summary = run_source_quality(
+                crosscheck_limit=limit,
+                include_crosscheck=True,
+            )
+            problems = (
+                crosscheck[
+                    crosscheck["状态"].astype(str) != "一致"
+                ]
+                if not crosscheck.empty
+                else crosscheck
+            )
+            result = {
+                "summary": summary,
+                "rows": _records(providers, 50),
+                "usage": _records(usage, 50),
+                "crosscheck": _records(problems, 100),
             }
         elif action == "repair_data":
             frame, summary = repair_failed_market_data(
@@ -378,6 +397,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1327;padding:12px;b
       <button class="primary" onclick="runTask('bootstrap')">建立/更新本地数据库</button>
       <button onclick="runTask('readiness')">就绪检查</button>
       <button onclick="runTask('audit_data')">本地数据审计</button>
+      <button onclick="runTask('source_quality')">数据源质量追踪</button>
       <button onclick="runTask('repair_data')">修复失败数据</button>
       <button class="primary" onclick="runTask('scan')">全市场扫描</button>
       <button onclick="runTask('stock_detail')">查看单股详情</button>
@@ -463,6 +483,8 @@ function renderResult(r){
   if(r.profile)blocks.push('<h3>策略参数</h3>'+pretty(r.profile));
   if(r.candidate)blocks.push('<h3>V2候选模型</h3>'+pretty(r.candidate));
   if(r.rows)blocks.push('<h3>结果</h3>'+table(r.rows));
+  if(r.usage&&r.usage.length)blocks.push('<h3>当前来源使用</h3>'+table(r.usage));
+  if(r.crosscheck&&r.crosscheck.length)blocks.push('<h3>多源差异</h3>'+table(r.crosscheck));
   if(r.by_regime&&r.by_regime.length)blocks.push('<h3>市场环境拆分</h3>'+table(r.by_regime));
   if(r.trades&&r.trades.length)blocks.push('<h3>交易样本</h3>'+table(r.trades));
   $('result').innerHTML=blocks.join('')||pretty(r);
@@ -524,6 +546,7 @@ def api_status():
 @app.post("/api/run/<action>")
 def api_run(action: str):
     allowed = {
+        "source_quality",
         "repair_data",
         "prepare_local",
         "readiness",
