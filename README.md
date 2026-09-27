@@ -531,13 +531,15 @@ reports/release_readiness.json
 
 ## Windows 首次运行与完整准备
 
-完整项目放到本机后，Windows 用户优先双击：
+完整项目放到本机后，Windows 推荐优先双击 ASCII 安全启动器：
 
 ```text
-首次运行.bat
+AQuant_FirstRun.cmd
 ```
 
 它会完成 Python/依赖/代码加载检查，执行一次本地就绪检查，然后启动网页终端。它**不会在你不知情的情况下自动跑几千只股票建库**。
+
+为了兼容熟悉的中文入口，`首次运行.bat` 仍然保留，但现在只负责转调 `AQuant_FirstRun.cmd`，不再承载容易受 CMD 编码影响的复杂逻辑。
 
 第一次打开网页后，可以点击：
 
@@ -560,8 +562,10 @@ reports/release_readiness.json
 如果希望不用网页、直接在黑色窗口执行同一套流程，可以双击：
 
 ```text
-全市场建库并验收.bat
+AQuant_FullMarket_Acceptance.cmd
 ```
+
+中文入口 `全市场建库并验收.bat` 仍可使用，它只负责转调上面的 ASCII 安全脚本。
 
 或命令行运行：
 
@@ -580,7 +584,7 @@ reports/release_readiness.csv
 reports/release_readiness.json
 ```
 
-之后日常使用只需要双击 `启动量化.bat`。
+之后日常使用优先双击 `AQuant_Start.cmd`；`启动量化.bat` 作为兼容入口保留。
 
 
 ### 空的 6688 文件夹怎么开始
@@ -591,15 +595,19 @@ reports/release_readiness.json
 安装量化项目.bat
 ```
 
-双击后它会从 GitHub 下载当前完整项目到该文件夹。脚本会保留系统代理设置、保留已有 `data_store` / `reports`，下载失败时窗口不会一闪而过。安装完成后会自动进入 `首次运行.bat`。
+双击后它会从 GitHub 下载当前完整项目到该文件夹。脚本会保留系统代理设置，并保留已有 `data_store` / `reports`。安装完成后会自动进入 ASCII 安全的首次运行流程。
 
-之后的日常使用顺序是：
+推荐顺序：
 
 ```text
-首次运行.bat          # 第一次：检查 Python/依赖并打开网页
-首次完整准备          # 网页按钮：全市场建库 -> 审计 -> 验收
-启动量化.bat          # 以后日常直接启动网页终端
+安装量化项目.bat                  # 下载/更新完整项目
+AQuant_FirstRun.cmd              # 第一次：检查 Python/依赖并打开网页
+首次完整准备                      # 网页按钮：全市场建库 -> 审计 -> 验收
+AQuant_Start.cmd                 # 以后日常直接启动网页终端
+AQuant_FullMarket_Acceptance.cmd # 需要命令行完整验收时使用
 ```
+
+旧的 `安装量化项目_修复版.bat` 已移除，避免多个安装器并存造成混淆。
 
 源码 ZIP 下载本身不会触发 GitHub Actions；项目的 Actions 工作流保持手动触发。
 
@@ -734,6 +742,8 @@ reports/backtest_partial.csv
 
 
 ### 新版网页布局
+
+网页终端已进一步做视觉收口，保持深色专业风格但提高层级、对比度和长时间使用的可读性。所有改动只涉及展示和交互，不改变策略、数据、回测或模型晋级逻辑。
 
 网页终端已经重新整理为更适合日常使用的量化工作台：
 
