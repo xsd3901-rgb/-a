@@ -103,6 +103,46 @@ class SourceHealthRegistry:
             }
             self._write(state)
 
+
+    def snapshot(self) -> list[dict]:
+        """返回适合网页/报告展示的健康快照。"""
+        now = datetime.now()
+        with _HEALTH_LOCK:
+            state = self._read()
+
+        rows: list[dict] = []
+        for key, raw in sorted(state.items()):
+            item = dict(raw) if isinstance(raw, dict) else {}
+            failures = int(item.get("consecutive_failures", 0) or 0)
+            latency = float(item.get("avg_elapsed_ms", 0.0) or 0.0)
+            cooldown = item.get("cooldown_until")
+            cooling = False
+            if cooldown:
+                try:
+                    cooling = datetime.fromisoformat(str(cooldown)) > now
+                except Exception:
+                    cooling = False
+
+            latency_penalty = min(25.0, latency / 1000.0 * 2.5)
+            score = max(
+                0.0,
+                100.0 - failures * 18.0 - latency_penalty - (35.0 if cooling else 0.0),
+            )
+            rows.append(
+                {
+                    "source": str(key),
+                    "score": round(score, 1),
+                    "status": "cooldown" if cooling else ("degraded" if failures else "healthy"),
+                    "consecutive_failures": failures,
+                    "avg_elapsed_ms": round(latency, 1),
+                    "last_success": item.get("last_success", ""),
+                    "last_failure": item.get("last_failure", ""),
+                    "cooldown_until": cooldown or "",
+                    "last_error": item.get("last_error", ""),
+                }
+            )
+        return rows
+
     def choose(self, keys: list[str]) -> list[str]:
         """返回本轮应该尝试的源。
 
