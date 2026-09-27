@@ -103,22 +103,39 @@ Walk-Forward 滚动验证
 ```text
 aquant/
 ├─ data/
-│  ├─ schema.py          # 统一字段契约
-│  ├─ quality.py         # 数据质量与交叉检查
-│  ├─ providers/         # 各真实数据源适配器（后续）
-│  └─ storage/           # Parquet / DuckDB 本地仓库（后续）
+│  ├─ schema.py                 # 统一字段契约
+│  ├─ service.py                # 行情统一编排
+│  ├─ reference_service.py      # 股票基础表 / 交易日历
+│  ├─ universe_service.py       # 历史上市退市生命周期
+│  ├─ storage.py                # Parquet / DuckDB 行情仓库
+│  ├─ source_quality.py         # 单次抓取质量事件
+│  ├─ source_health.py          # 源健康评分 / 冷却熔断
+│  ├─ overview.py               # 数据中心本地概览
+│  ├─ providers/
+│  │  ├─ registry.py            # Provider 注册
+│  │  ├─ eastmoney_akshare.py   # EastMoney / AKShare
+│  │  ├─ baostock_provider.py   # BaoStock
+│  │  └─ baostock_session.py    # BaoStock 长连接会话
+│  └─ routing/
+│     ├─ policy.py              # 按数据类型配置源顺序/超时
+│     └─ router.py              # 健康感知路由
+├─ resources/                   # 首次启动用基础资料 seed
 ├─ runtime/
-│  └─ resources.py       # 内存自适应资源调度
-├─ features/
-│  └─ base.py            # 特征工程统一接口
-├─ models/
-│  └─ base.py            # 规则/统计/ML模型统一接口
-├─ risk/
-│  └─ base.py            # 独立风险过滤接口
-├─ research/
-│  └─ validation.py      # 时间序列 / Walk-Forward 验证
-└─ web/                  # 网页终端（后续迁移）
+│  └─ resources.py              # 内存自适应资源调度
+├─ features/                    # 特征工程
+├─ models/                      # V1/V2 与模型注册
+├─ risk/                        # 独立风险过滤
+├─ research/                    # 审计 / WF / 模型比较等
+└─ web/
+   ├─ app.py                    # Flask 应用工厂
+   ├─ routes.py                 # HTTP 路由
+   ├─ jobs.py                   # 后台任务状态
+   ├─ actions/                  # 日常 / 数据 / 研究 / 系统任务
+   ├─ templates/index.html      # 页面结构
+   └─ static/                   # CSS / JS
 ```
+
+维护时遵守：Provider 只取数和标准化，Router 只做源选择/熔断，Service 只做编排，Store 只做本地读写，Audit 决定数据是否能进入正式研究。详细文件地图见 `MAINTENANCE.md`。
 
 ## 6. 建模原则
 
