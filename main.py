@@ -19,6 +19,7 @@ from aquant.research.readiness import release_readiness
 from aquant.research.system_validation import run_system_validation
 from aquant.research.stock_detail import stock_detail
 from aquant.research.source_quality import run_source_quality
+from aquant.research.strategy_ablation import run_v1_ablation
 from aquant.research.portfolio import simulate_portfolio
 from optimizer import optimize_parameters
 from profile import load_strategy_profile
@@ -76,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     features.add_argument("--refresh", action="store_true", help="强制刷新研究数据")
 
     sub.add_parser("select-features", help="从特征验证结果生成 V2 候选特征，不启用")
+    sub.add_parser("ablation", help="研究 V1 逐条评分规则的边际贡献，不自动改权重")
 
     wf = sub.add_parser("walk-forward", help="对 V2 候选模型执行滚动样本外验证")
     wf.add_argument("--horizon", type=int, choices=[5, 10, 20], default=10, help="预测窗口，默认10日")
@@ -260,6 +262,16 @@ def main() -> None:
             print(
                 f"\n完整结果已保存：{SETTINGS.report_dir / 'feature_validation.csv'}"
             )
+        return
+
+    if args.command == "ablation":
+        detail, summary_table, summary = run_v1_ablation()
+        print("\nV1规则消融汇总：")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        if not summary_table.empty:
+            print("\n规则研究结论：")
+            print(summary_table.to_string(index=False))
         return
 
     if args.command == "select-features":
