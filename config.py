@@ -32,6 +32,7 @@ class Settings:
     score_threshold: int = 68
     top_n: int = 50
     request_pause_seconds: float = 0.08
+    scan_resume: bool = True
 
     # 回测观察参数：不是选股硬条件
     reference_hold_min_days: int = 5
@@ -41,6 +42,7 @@ class Settings:
     # 默认历史回测窗口。前置 warmup 只用于指标计算，不计入正式信号区间。
     backtest_calendar_days: int = 540
     backtest_warmup_calendar_days: int = 260
+    backtest_resume: bool = True
 
     # 特征有效性研究窗口：先验证再决定是否进入正式评分。
     feature_validation_calendar_days: int = 900
