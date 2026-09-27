@@ -175,7 +175,7 @@ def _historical_universe(
         return stocks[keep].drop_duplicates("code").reset_index(drop=True)
     except Exception as exc:
         print(f"历史股票池暂不可用，退回当前沪深股票列表: {exc}")
-        stocks = provider.stock_list().copy()
+        stocks = provider.stock_list(refresh=refresh).copy()
         stocks["listing_date"] = pd.NaT
         stocks["delisting_date"] = pd.NaT
         return stocks
