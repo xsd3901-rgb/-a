@@ -71,6 +71,8 @@ jobs:
         run: PYTHONPATH=. python tests/smoke_features_regime_offline.py
       - name: Offline feature validation smoke test
         run: PYTHONPATH=. python tests/smoke_feature_validation_offline.py
+      - name: Offline feature resume smoke test
+        run: PYTHONPATH=. python tests/smoke_feature_resume_offline.py
       - name: Offline V2 walk-forward smoke test
         run: PYTHONPATH=. python tests/smoke_v2_walk_forward_offline.py
       - name: Offline cost and portfolio smoke test
