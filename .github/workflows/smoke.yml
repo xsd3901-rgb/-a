@@ -6,16 +6,6 @@ concurrency:
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "aquant/**"
-      - "tests/**"
-      - "bootstrap.py"
-      - "scanner.py"
-      - "backtest.py"
-      - "config.py"
-      - ".github/workflows/smoke.yml"
 
 jobs:
   smoke:
