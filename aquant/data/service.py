@@ -6,11 +6,15 @@ import time
 import pandas as pd
 
 from aquant.data.continuous import build_point_in_time_continuous
-from aquant.data.providers.baostock_provider import BaoStockProvider
 from aquant.data.providers.base import is_shsz_a_share
-from aquant.data.providers.eastmoney_akshare import EastMoneyAKShareProvider
+from aquant.data.providers.registry import ProviderRegistry
 from aquant.data.quality import validate_bar_frame
 from aquant.data.reference_service import ReferenceDataService
+from aquant.data.routing.policy import (
+    DAILY_POINT_IN_TIME_ORDER,
+    DAILY_RESEARCH_ORDER,
+    STOCK_LIST_SOURCES,
+)
 from aquant.data.routing.router import DataSourceRouter
 from aquant.data.schema import FIELDS
 from aquant.data.safe_fetch import fetch_stock_list_with_timeout
@@ -33,8 +37,9 @@ class MarketDataService:
 
     def __init__(self, store_root: str | None = None) -> None:
         root = str(SETTINGS.data_store_dir) if store_root is None else store_root
-        self.primary = EastMoneyAKShareProvider()
-        self.backup = BaoStockProvider()
+        self.providers = ProviderRegistry()
+        self.primary = self.providers.get("eastmoney")
+        self.backup = self.providers.get("baostock")
         self.store = MarketStore(root)
         self.source_quality = SourceQualityLog(self.store.paths.root)
         self.router = DataSourceRouter(self.store.paths.root)
@@ -58,9 +63,8 @@ class MarketDataService:
             df = local.copy()
         else:
             source_config = {
-                "eastmoney": 18.0,
-                "exchange": 30.0,
-                "baostock": 45.0,
+                spec.name: spec.timeout_seconds
+                for spec in STOCK_LIST_SOURCES
             }
             sources = self.router.names(
                 list(source_config),
@@ -234,11 +238,12 @@ class MarketDataService:
         prefer_point_in_time: bool = False,
     ) -> pd.DataFrame:
         errors: list[str] = []
-        preferred = (
-            (self.backup, self.primary)
+        order = (
+            DAILY_POINT_IN_TIME_ORDER
             if prefer_point_in_time
-            else (self.primary, self.backup)
+            else DAILY_RESEARCH_ORDER
         )
+        preferred = self.providers.ordered(order)
         providers = self.router.providers(
             preferred,
             capability="daily",
