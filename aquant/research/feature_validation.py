@@ -4,6 +4,7 @@ import gc
 import math
 import shutil
 from pathlib import Path
+from typing import Callable
 
 import duckdb
 import numpy as np
@@ -13,6 +14,7 @@ from aquant.data.context_service import MarketContextService
 from aquant.data.service import MarketDataService
 from backtest import EXECUTION_COLUMNS, attach_execution_bars
 from strategy import score_history
+from aquant.runtime.checkpoint import JsonCheckpoint
 from aquant.runtime.resources import current_profile
 from config import SETTINGS, ensure_directories
 
@@ -472,12 +474,18 @@ def _evaluate_feature_store(
 def run_feature_validation(
     limit: int | None = 200,
     refresh: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> pd.DataFrame:
-    """验证特征在训练/验证时间段是否方向一致，但不自动修改正式评分。"""
+    """验证特征稳定性；支持长任务断点续跑，不自动修改正式评分。"""
     ensure_directories()
     provider = MarketDataService()
     context = MarketContextService()
     runtime = current_profile()
+
+    def announce(message: str) -> None:
+        print(message)
+        if progress is not None:
+            progress(message)
 
     market_end = provider.latest_trade_date()
     study_start = market_end - pd.Timedelta(
@@ -495,6 +503,7 @@ def run_feature_validation(
     )
     if limit and limit > 0:
         stocks = stocks.head(limit)
+    stocks = stocks.reset_index(drop=True)
 
     benchmark = context.index_daily(
         "sh000300",
@@ -503,118 +512,256 @@ def run_feature_validation(
     )
 
     work_dir = SETTINGS.data_store_dir / "research" / "feature_validation"
-    if work_dir.exists():
-        shutil.rmtree(work_dir)
+    checkpoint_path = (
+        SETTINGS.data_store_dir
+        / "research"
+        / "feature_validation_checkpoint.json"
+    )
+    signature = (
+        f"feature-v3|{study_start:%Y-%m-%d}|{market_end:%Y-%m-%d}|"
+        f"st={int(bool(SETTINGS.exclude_st))}|"
+        f"h={','.join(str(h) for h in HORIZONS)}|"
+        f"features={','.join(FEATURE_SPECS.keys())}"
+    )
+    checkpoint = JsonCheckpoint(checkpoint_path, signature)
+    resume_enabled = bool(SETTINGS.feature_validation_resume) and not refresh
+
+    if refresh or not bool(SETTINGS.feature_validation_resume):
+        if work_dir.exists():
+            shutil.rmtree(work_dir)
+        checkpoint.clear()
+    elif work_dir.exists():
+        existing_chunks = list(work_dir.glob("chunk_*.parquet"))
+        # signature 已变化时 JsonCheckpoint 会返回空状态；旧样本必须清掉。
+        if existing_chunks and checkpoint.completed_count == 0:
+            shutil.rmtree(work_dir)
+    elif checkpoint.completed_count:
+        # 检查点存在、样本目录却被删了，不能继续跳过股票。
+        checkpoint.clear()
+
     work_dir.mkdir(parents=True, exist_ok=True)
 
-    buffer: list[pd.DataFrame] = []
-    total_rows = 0
-    valid_stocks = 0
-    errors: list[dict] = []
+    existing_chunks = sorted(work_dir.glob("chunk_*.parquet"))
     chunk_no = 0
-    flush_every = max(1, runtime.batch_size)
+    total_rows = 0
+    if existing_chunks:
+        for path in existing_chunks:
+            try:
+                chunk_no = max(
+                    chunk_no,
+                    int(path.stem.split("_")[-1]),
+                )
+            except Exception:
+                pass
+            try:
+                import pyarrow.parquet as pq
 
-    print(
+                total_rows += int(
+                    pq.ParquetFile(path).metadata.num_rows
+                )
+            except Exception:
+                pass
+
+    pending: list[dict] = []
+    resumed = 0
+    valid_stocks = 0
+    for _, row in stocks.iterrows():
+        record = row.to_dict()
+        code = str(record["code"]).zfill(6)
+        payload = checkpoint.state.completed.get(code)
+        usable = False
+        if resume_enabled and payload is not None:
+            chunk = payload.get("chunk")
+            if chunk is None:
+                usable = True
+            else:
+                usable = (
+                    work_dir / f"chunk_{int(chunk):05d}.parquet"
+                ).exists()
+
+        if usable:
+            resumed += 1
+            if payload.get("status") == "sample":
+                valid_stocks += 1
+        else:
+            pending.append(record)
+
+    buffer: list[pd.DataFrame] = []
+    buffer_codes: list[str] = []
+    errors: list[dict] = []
+    flush_every = max(1, runtime.batch_size)
+    processed = 0
+
+    def flush_buffer() -> None:
+        nonlocal chunk_no, total_rows
+        if not buffer:
+            return
+        chunk_no += 1
+        rows = _flush_chunk(buffer, work_dir, chunk_no)
+        total_rows += rows
+        checkpoint.mark_many_completed(
+            {
+                code: {
+                    "status": "sample",
+                    "chunk": chunk_no,
+                }
+                for code in buffer_codes
+            }
+        )
+        buffer_codes.clear()
+
+    announce(
         f"特征验证股票池 {len(stocks)} 只 | "
-        f"研究区间 {study_start:%Y-%m-%d} ~ {market_end:%Y-%m-%d}"
+        f"研究区间 {study_start:%Y-%m-%d} ~ {market_end:%Y-%m-%d} | "
+        f"断点跳过 {resumed} | 待处理 {len(pending)}"
     )
 
-    for pos, row in stocks.iterrows():
-        code, name = str(row["code"]), str(row["name"])
-        listing_date = row.get("listing_date", pd.NaT)
-        delisting_date = row.get("delisting_date", pd.NaT)
+    for record in pending:
+        processed += 1
+        code = str(record["code"]).zfill(6)
+        name = str(record["name"])
+        listing_date = record.get("listing_date", pd.NaT)
+        delisting_date = record.get("delisting_date", pd.NaT)
 
         stock_start = fetch_start
         if pd.notna(listing_date):
-            stock_start = max(stock_start, pd.Timestamp(listing_date).normalize())
+            stock_start = max(
+                stock_start,
+                pd.Timestamp(listing_date).normalize(),
+            )
 
         stock_end = market_end
         if pd.notna(delisting_date):
-            stock_end = min(stock_end, pd.Timestamp(delisting_date).normalize())
+            stock_end = min(
+                stock_end,
+                pd.Timestamp(delisting_date).normalize(),
+            )
 
         if stock_start >= stock_end:
-            continue
-
-        try:
-            hist, execution = provider.research_history_range(
+            checkpoint.mark_completed(
                 code,
-                stock_start.strftime("%Y-%m-%d"),
-                stock_end.strftime("%Y-%m-%d"),
-                refresh=refresh,
+                {"status": "no_sample", "chunk": None},
             )
-            if len(hist) < SETTINGS.min_bars + max(HORIZONS):
-                continue
-
-            feat = score_history(hist, benchmark_bars=benchmark)
-            # 未来收益标签必须先在“可交易K线序列”上生成，避免后来插入的
-            # 停牌执行日期改变 5/10/20 日标签的实际跨度。
-            feat = add_forward_returns(feat)
-            feat = attach_execution_bars(
-                feat,
-                execution,
-                preserve_execution_dates=True,
-            )
-            feat["date"] = pd.to_datetime(
-                feat["date"], errors="coerce"
-            ).dt.normalize()
-            feat = feat[
-                (feat["date"] >= study_start)
-                & (feat["date"] <= market_end)
-            ].copy()
-
-            # 停牌/ST 日期要留在执行时间轴供模型对照回测使用，但不能进入
-            # 特征有效性标签样本。将目标置空即可让研究查询自动排除。
-            invalid_sample = pd.Series(False, index=feat.index)
-            trade_status_col = (
-                "exec_trade_status"
-                if "exec_trade_status" in feat.columns
-                else "trade_status"
-            )
-            if trade_status_col in feat.columns:
-                status = pd.to_numeric(
-                    feat[trade_status_col], errors="coerce"
+        else:
+            try:
+                hist, execution = provider.research_history_range(
+                    code,
+                    stock_start.strftime("%Y-%m-%d"),
+                    stock_end.strftime("%Y-%m-%d"),
+                    refresh=refresh,
                 )
-                invalid_sample |= status.notna() & ~status.eq(1)
+                if len(hist) < SETTINGS.min_bars + max(HORIZONS):
+                    checkpoint.mark_completed(
+                        code,
+                        {"status": "no_sample", "chunk": None},
+                    )
+                else:
+                    feat = score_history(
+                        hist,
+                        benchmark_bars=benchmark,
+                    )
+                    # 未来收益标签先在可交易 K 线序列上生成，停牌日期随后
+                    # 仅作为执行时间轴插回，避免改变 5/10/20 日标签跨度。
+                    feat = add_forward_returns(feat)
+                    feat = attach_execution_bars(
+                        feat,
+                        execution,
+                        preserve_execution_dates=True,
+                    )
+                    feat["date"] = pd.to_datetime(
+                        feat["date"], errors="coerce"
+                    ).dt.normalize()
+                    feat = feat[
+                        (feat["date"] >= study_start)
+                        & (feat["date"] <= market_end)
+                    ].copy()
 
-            st_col = "exec_is_st" if "exec_is_st" in feat.columns else "is_st"
-            if SETTINGS.exclude_st and st_col in feat.columns:
-                st = pd.to_numeric(feat[st_col], errors="coerce")
-                invalid_sample |= st.eq(1)
+                    invalid_sample = pd.Series(
+                        False,
+                        index=feat.index,
+                    )
+                    trade_status_col = (
+                        "exec_trade_status"
+                        if "exec_trade_status" in feat.columns
+                        else "trade_status"
+                    )
+                    if trade_status_col in feat.columns:
+                        status = pd.to_numeric(
+                            feat[trade_status_col],
+                            errors="coerce",
+                        )
+                        invalid_sample |= (
+                            status.notna() & ~status.eq(1)
+                        )
 
-            for horizon in HORIZONS:
-                target = f"fwd_ret_{horizon}d"
-                if target in feat.columns:
-                    feat.loc[invalid_sample, target] = np.nan
+                    st_col = (
+                        "exec_is_st"
+                        if "exec_is_st" in feat.columns
+                        else "is_st"
+                    )
+                    if SETTINGS.exclude_st and st_col in feat.columns:
+                        st = pd.to_numeric(
+                            feat[st_col],
+                            errors="coerce",
+                        )
+                        invalid_sample |= st.eq(1)
 
-            if feat.empty:
-                continue
+                    for horizon in HORIZONS:
+                        target = f"fwd_ret_{horizon}d"
+                        if target in feat.columns:
+                            feat.loc[
+                                invalid_sample,
+                                target,
+                            ] = np.nan
 
-            feat["code"] = code
-            feat["name"] = name
-            feat["listing_date"] = (
-                pd.Timestamp(listing_date).normalize()
-                if pd.notna(listing_date)
-                else pd.NaT
-            )
-            buffer.append(feat)
-            valid_stocks += 1
+                    if feat.empty:
+                        checkpoint.mark_completed(
+                            code,
+                            {
+                                "status": "no_sample",
+                                "chunk": None,
+                            },
+                        )
+                    else:
+                        feat["code"] = code
+                        feat["name"] = name
+                        feat["listing_date"] = (
+                            pd.Timestamp(
+                                listing_date
+                            ).normalize()
+                            if pd.notna(listing_date)
+                            else pd.NaT
+                        )
+                        buffer.append(feat)
+                        buffer_codes.append(code)
+                        valid_stocks += 1
 
-        except Exception as exc:
-            errors.append({"代码": code, "名称": name, "错误": str(exc)[:300]})
-
-        finally:
-            if (pos + 1) % flush_every == 0:
-                chunk_no += 1
-                total_rows += _flush_chunk(buffer, work_dir, chunk_no)
-                print(
-                    f"特征验证进度 {pos + 1}/{len(stocks)} | "
-                    f"有效股票 {valid_stocks} | 样本 {total_rows}"
+            except Exception as exc:
+                error = str(exc)[:300]
+                errors.append(
+                    {
+                        "代码": code,
+                        "名称": name,
+                        "错误": error,
+                    }
                 )
-                gc.collect()
+                checkpoint.mark_failed(
+                    code,
+                    error=error,
+                    attempts=1,
+                )
 
-    if buffer:
-        chunk_no += 1
-        total_rows += _flush_chunk(buffer, work_dir, chunk_no)
+        if processed % flush_every == 0:
+            flush_buffer()
+            done = resumed + processed
+            announce(
+                f"特征验证进度 {done}/{len(stocks)} | "
+                f"有效股票 {valid_stocks} | 样本 {total_rows} | "
+                f"本次错误 {len(errors)}"
+            )
+            gc.collect()
+
+    flush_buffer()
 
     result, split_date, sample_count = _evaluate_feature_store(
         work_dir,
@@ -637,7 +784,10 @@ def run_feature_validation(
                 "股票池数量": len(stocks),
                 "有效股票数量": valid_stocks,
                 "样本行数": sample_count,
+                "断点跳过股票": resumed,
+                "本次处理股票": len(pending),
                 "错误数量": len(errors),
+                "检查点": str(checkpoint_path),
                 "说明": "仅验证特征稳定性，不自动修改正式选股评分权重",
             }
         ]
@@ -653,9 +803,13 @@ def run_feature_validation(
             index=False,
             encoding="utf-8-sig",
         )
+    else:
+        error_path = SETTINGS.report_dir / "feature_validation_errors.csv"
+        if error_path.exists():
+            error_path.unlink()
 
-    print(
+    announce(
         f"特征验证完成：有效股票 {valid_stocks}，样本 {sample_count}，"
-        f"结果 {len(result)} 行。"
+        f"结果 {len(result)} 行，断点跳过 {resumed}。"
     )
     return result
