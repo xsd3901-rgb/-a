@@ -57,7 +57,7 @@ class FakeProvider:
             ]
         )
 
-    def stock_list(self) -> pd.DataFrame:
+    def stock_list(self, refresh: bool = False) -> pd.DataFrame:
         return self.historical_securities()[["code", "name"]]
 
     def research_history_range(
