@@ -228,6 +228,8 @@ def _write_source_quality(status: pd.DataFrame) -> None:
 
         run_source_quality(
             include_crosscheck=False,
+            data_root=SETTINGS.data_store_dir,
+            report_dir=SETTINGS.report_dir,
         )
     except Exception as exc:
         print(f"数据源质量报告暂不可用，建库结果仍保留: {exc}")
