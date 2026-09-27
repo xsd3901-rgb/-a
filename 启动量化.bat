@@ -46,9 +46,13 @@ if not exist "%~dp0requirements.txt" (
 set "PYEXE="
 set "PYARGS="
 
-if exist "C:\Program Files\Python312\python.exe" (
-    set "PYEXE=C:\Program Files\Python312\python.exe"
-)
+rem Python 寻址顺序：显式指定 -> 项目虚拟环境 -> 常见安装目录 -> PATH -> py launcher
+if defined AQUANT_PYTHON if exist "%AQUANT_PYTHON%" set "PYEXE=%AQUANT_PYTHON%"
+if not defined PYEXE if exist "%~dp0.venv\Scripts\python.exe" set "PYEXE=%~dp0.venv\Scripts\python.exe"
+if not defined PYEXE if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" set "PYEXE=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+if not defined PYEXE if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" set "PYEXE=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+if not defined PYEXE if exist "C:\Program Files\Python312\python.exe" set "PYEXE=C:\Program Files\Python312\python.exe"
+if not defined PYEXE if exist "C:\Program Files\Python311\python.exe" set "PYEXE=C:\Program Files\Python311\python.exe"
 
 if not defined PYEXE (
     for /f "delims=" %%P in ('where python 2^>nul') do (
