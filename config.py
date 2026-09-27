@@ -46,6 +46,7 @@ class Settings:
     feature_validation_calendar_days: int = 900
     feature_validation_warmup_calendar_days: int = 260
     feature_validation_train_ratio: float = 0.70
+    feature_validation_resume: bool = True
 
     # V2 候选模型 / Walk-Forward。只在研究层验证通过后才允许进入正式评分。
     v2_max_features: int = 8
