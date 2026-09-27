@@ -2,6 +2,7 @@ let activeJob=null,pollTimer=null,lastAction='';
 const $=id=>document.getElementById(id);
 const actionNames={
   prepare_local:'首次完整准备',readiness:'就绪检查',audit_data:'数据完整性审计',
+  refresh_reference:'更新基础资料',
   source_quality:'数据源质量追踪',repair_data:'定向修复失败',bootstrap:'更新本地数据库',
   scan:'全市场扫描',stock_detail:'单股详情',backtest:'V1真实回测',
   features:'特征有效性',ablation:'V1规则消融',select_features:'生成V2候选',walk_forward:'Walk-Forward',
@@ -18,9 +19,9 @@ function compact(v){
 }
 function statusClass(v){
   const s=String(v??'');
-  if(/FAIL|失败|异常|未通过|错误/.test(s))return 'bad';
-  if(/WARN|警告|观察|待|降级|部分/.test(s))return 'warn';
-  if(/OK|通过|完成|就绪|成功/.test(s))return 'ok';
+  if(/FAIL|失败|异常|未通过|错误|cooldown/.test(s))return 'bad';
+  if(/WARN|警告|观察|待|降级|部分|degraded/.test(s))return 'warn';
+  if(/OK|通过|完成|就绪|成功|healthy/.test(s))return 'ok';
   return '';
 }
 function table(rows){
@@ -175,6 +176,7 @@ function renderResult(r,action=''){
   if(r.rows&&r.rows.length)blocks.push('<div class="block-title">结果明细</div>'+table(r.rows));
   if(r.ablation_detail&&r.ablation_detail.length)blocks.push('<div class="block-title">各预测窗口消融明细</div>'+table(r.ablation_detail));
   if(r.usage&&r.usage.length)blocks.push('<div class="block-title">当前来源使用</div>'+table(r.usage));
+  if(r.source_health&&r.source_health.length)blocks.push('<div class="block-title">数据源健康</div>'+table(r.source_health));
   if(r.crosscheck&&r.crosscheck.length)blocks.push('<div class="block-title">多源差异</div>'+table(r.crosscheck));
   if(r.by_regime&&r.by_regime.length)blocks.push('<div class="block-title">市场环境拆分</div>'+table(r.by_regime));
   if(r.trades&&r.trades.length)blocks.push('<div class="block-title">交易样本</div>'+table(r.trades));
@@ -192,6 +194,13 @@ async function refreshStatus(){
     $('reportPath').textContent=d.paths.reports;
     $('reportCount').textContent=(d.reports||[]).length+' 个文件';
     $('reports').innerHTML=table(d.reports||[]);
+    const dc=d.data_center||{};
+    const dcSummary=dc.summary||{};
+    $('dataCenterSummary').innerHTML=summaryCards(dcSummary);
+    $('sourceHealth').innerHTML=table(dc.source_health||[]);
+    const cooling=Number(dcSummary['冷却数据源']||0);
+    $('dataCenterState').textContent=cooling>0?('有 '+cooling+' 个源冷却中'):'本地数据层正常';
+    $('dataCenterState').className='pill '+(cooling>0?'warn':'ok');
     if(d.active_job&&!activeJob){
       activeJob=d.active_job;
       setBusy(true);
