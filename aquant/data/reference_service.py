@@ -9,6 +9,10 @@ from config import SETTINGS
 
 from aquant.data.reference import ReferenceStore
 from aquant.data.safe_fetch import fetch_trade_calendar_with_timeout
+from aquant.data.seed_reference import (
+    load_security_seed,
+    load_trade_calendar_seed,
+)
 
 
 class ReferenceDataService:
@@ -17,6 +21,37 @@ class ReferenceDataService:
     def __init__(self, store_root: str | None = None) -> None:
         root = str(SETTINGS.data_store_dir) if store_root is None else store_root
         self.store = ReferenceStore(root)
+        self._ensure_bundled_reference()
+
+    def _ensure_bundled_reference(self) -> None:
+        """首次部署没有本地快照时，用随项目分发的只读种子启动。
+
+        种子只负责让系统能够开始工作；后续远端刷新仍会覆盖本地基础库。
+        历史生命周期资料不由这里伪造，因此正式验收仍会检查
+        security_lifecycle 是否真实可用。
+        """
+        changed = False
+
+        local_security = self.store.read_security_master()
+        if local_security.empty:
+            security_seed = load_security_seed()
+            if not security_seed.empty:
+                self.store.save_security_master(security_seed)
+                changed = True
+
+        local_calendar = self.store.read_trade_calendar()
+        if local_calendar.empty:
+            calendar_seed = load_trade_calendar_seed()
+            if not calendar_seed.empty:
+                self.store.save_trade_calendar(calendar_seed)
+                changed = True
+
+        if changed:
+            try:
+                self.store.refresh_catalog()
+            except Exception:
+                # 种子落盘成功比 DuckDB 目录视图更重要；目录后续仍可重建。
+                pass
 
     @staticmethod
     def _fresh(path, max_age_hours: float) -> bool:
