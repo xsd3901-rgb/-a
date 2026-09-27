@@ -25,37 +25,145 @@ class Signal:
     risk_reasons: str = ""
 
 
+V1_COMPONENT_SPECS: dict[str, dict[str, object]] = {
+    "v1c_close_above_ma20": {
+        "名称": "站上MA20",
+        "类别": "趋势",
+        "权重": 12,
+    },
+    "v1c_short_ma_bull": {
+        "名称": "MA5>MA10>MA20",
+        "类别": "趋势",
+        "权重": 14,
+    },
+    "v1c_ma20_above_ma60": {
+        "名称": "MA20>MA60",
+        "类别": "趋势",
+        "权重": 8,
+    },
+    "v1c_macd_bull": {
+        "名称": "MACD DIF>DEA",
+        "类别": "动量",
+        "权重": 12,
+    },
+    "v1c_rsi_healthy": {
+        "名称": "RSI健康区",
+        "类别": "动量",
+        "权重": 10,
+    },
+    "v1c_kdj_bull": {
+        "名称": "KDJ偏强",
+        "类别": "动量",
+        "权重": 8,
+    },
+    "v1c_volume_healthy": {
+        "名称": "5日量比健康",
+        "类别": "量能",
+        "权重": 12,
+    },
+    "v1c_position_strong": {
+        "名称": "20日强势位置",
+        "类别": "强弱",
+        "权重": 10,
+    },
+    "v1c_ret5_healthy": {
+        "名称": "5日涨幅健康",
+        "类别": "动量",
+        "权重": 7,
+    },
+    "v1c_ret20_healthy": {
+        "名称": "20日涨幅健康",
+        "类别": "动量",
+        "权重": 7,
+    },
+    "v1c_penalty_rsi_hot": {
+        "名称": "RSI过热惩罚",
+        "类别": "惩罚",
+        "权重": -12,
+    },
+    "v1c_penalty_atr_high": {
+        "名称": "ATR高波动惩罚",
+        "类别": "惩罚",
+        "权重": -10,
+    },
+    "v1c_penalty_ret5_hot": {
+        "名称": "5日涨幅过热惩罚",
+        "类别": "惩罚",
+        "权重": -10,
+    },
+}
+
+V1_COMPONENT_COLUMNS = tuple(V1_COMPONENT_SPECS)
+
+
+def _attach_v1_components(out: pd.DataFrame) -> pd.DataFrame:
+    """把 V1 每一条规则拆成独立贡献列，评分口径保持不变。"""
+    conditions = {
+        "v1c_close_above_ma20": out["close"] > out["ma20"],
+        "v1c_short_ma_bull": (
+            (out["ma5"] > out["ma10"])
+            & (out["ma10"] > out["ma20"])
+        ),
+        "v1c_ma20_above_ma60": out["ma20"] > out["ma60"],
+        "v1c_macd_bull": out["macd_dif"] > out["macd_dea"],
+        "v1c_rsi_healthy": (
+            (out["rsi6"] >= 45)
+            & (out["rsi6"] <= 78)
+        ),
+        "v1c_kdj_bull": (
+            (out["kdj_k"] > out["kdj_d"])
+            & (out["kdj_j"] < 100)
+        ),
+        "v1c_volume_healthy": (
+            (out["vol_ratio5"] >= 1.05)
+            & (out["vol_ratio5"] <= 3.5)
+        ),
+        "v1c_position_strong": out["position_20"] >= 0.94,
+        "v1c_ret5_healthy": (
+            (out["ret_5d"] >= 0)
+            & (out["ret_5d"] <= 18)
+        ),
+        "v1c_ret20_healthy": (
+            (out["ret_20d"] >= -5)
+            & (out["ret_20d"] <= 35)
+        ),
+        "v1c_penalty_rsi_hot": out["rsi6"] > 85,
+        "v1c_penalty_atr_high": out["atr_pct"] > 9,
+        "v1c_penalty_ret5_hot": out["ret_5d"] > 25,
+    }
+
+    for column, spec in V1_COMPONENT_SPECS.items():
+        weight = int(spec["权重"])
+        out[column] = np.where(
+            conditions[column].fillna(False),
+            weight,
+            0,
+        ).astype(np.int8)
+    return out
+
+
 def score_history(
     df: pd.DataFrame,
     benchmark_bars: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    out = FeaturePipeline().transform(df, benchmark_bars=benchmark_bars)
-    score = pd.Series(0.0, index=out.index)
+    out = FeaturePipeline().transform(
+        df,
+        benchmark_bars=benchmark_bars,
+    )
+    out = _attach_v1_components(out)
 
-    # 趋势
-    score += np.where(out["close"] > out["ma20"], 12, 0)
-    score += np.where((out["ma5"] > out["ma10"]) & (out["ma10"] > out["ma20"]), 14, 0)
-    score += np.where(out["ma20"] > out["ma60"], 8, 0)
-
-    # 动量
-    score += np.where(out["macd_dif"] > out["macd_dea"], 12, 0)
-    score += np.where((out["rsi6"] >= 45) & (out["rsi6"] <= 78), 10, 0)
-    score += np.where((out["kdj_k"] > out["kdj_d"]) & (out["kdj_j"] < 100), 8, 0)
-
-    # 量能与强弱
-    score += np.where((out["vol_ratio5"] >= 1.05) & (out["vol_ratio5"] <= 3.5), 12, 0)
-    score += np.where(out["position_20"] >= 0.94, 10, 0)
-    score += np.where((out["ret_5d"] >= 0) & (out["ret_5d"] <= 18), 7, 0)
-    score += np.where((out["ret_20d"] >= -5) & (out["ret_20d"] <= 35), 7, 0)
-
-    # 过热/波动惩罚
-    score -= np.where(out["rsi6"] > 85, 12, 0)
-    score -= np.where(out["atr_pct"] > 9, 10, 0)
-    score -= np.where(out["ret_5d"] > 25, 10, 0)
+    score = pd.Series(0, index=out.index, dtype="int16")
+    for column in V1_COMPONENT_COLUMNS:
+        score = score.add(
+            pd.to_numeric(out[column], errors="coerce").fillna(0),
+            fill_value=0,
+        )
 
     profile = load_strategy_profile()
     out["score"] = score.clip(0, 100).round().astype("Int64")
-    out["signal"] = out["score"] >= int(profile["score_threshold"])
+    out["signal"] = (
+        out["score"] >= int(profile["score_threshold"])
+    )
     return out
 
 
