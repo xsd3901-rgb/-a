@@ -220,33 +220,17 @@ def _bootstrap_one(
 
 
 def _write_source_quality(status: pd.DataFrame) -> None:
-    if status is None or status.empty:
-        return
-    good = status[status["状态"].isin(["OK", "SKIPPED_RESUME"])].copy()
-    if good.empty:
-        return
-
-    rows: list[dict] = []
-    for layer, col in (("Raw未复权", "Raw来源"), ("QFQ", "QFQ来源")):
-        if col not in good.columns:
-            continue
-        counts = good[col].fillna("unknown").astype(str).value_counts()
-        for provider, count in counts.items():
-            rows.append(
-                {
-                    "层": layer,
-                    "数据来源": provider,
-                    "股票数": int(count),
-                    "占比%": round(count / len(good) * 100.0, 2),
-                }
-            )
-
-    if rows:
-        pd.DataFrame(rows).to_csv(
-            SETTINGS.report_dir / "data_source_quality.csv",
-            index=False,
-            encoding="utf-8-sig",
+    """建库结束后刷新本地来源追踪报告，不额外访问远端。"""
+    try:
+        from aquant.research.source_quality import (
+            run_source_quality,
         )
+
+        run_source_quality(
+            include_crosscheck=False,
+        )
+    except Exception as exc:
+        print(f"数据源质量报告暂不可用，建库结果仍保留: {exc}")
 
 
 def bootstrap_market(
