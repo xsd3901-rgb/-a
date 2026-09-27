@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from aquant.data.reference import ReferenceStore
+from aquant.data.reference_service import ReferenceDataService
 from aquant.data.source_health import SourceHealthRegistry
 from config import SETTINGS
 
@@ -17,7 +17,8 @@ def data_overview(
         if data_root is None
         else Path(data_root)
     )
-    reference = ReferenceStore(root)
+    reference_service = ReferenceDataService(str(root))
+    reference = reference_service.store
     securities = reference.read_security_master()
     calendar = reference.read_trade_calendar()
 
