@@ -60,6 +60,8 @@ jobs:
         run: PYTHONPATH=. python tests/smoke_bootstrap_resume_offline.py
       - name: Offline task resume smoke test
         run: PYTHONPATH=. python tests/smoke_task_resume_offline.py
+      - name: Offline interrupt resume smoke test
+        run: PYTHONPATH=. python tests/smoke_interrupt_resume_offline.py
       - name: Offline data audit smoke test
         run: PYTHONPATH=. python tests/smoke_data_audit_offline.py
       - name: Offline data audit fallback smoke test
