@@ -83,7 +83,32 @@ class JsonCheckpoint:
             }
         )
         self.state.failed[code] = value
+        self.state.completed.pop(code, None)
         self.save()
+
+    def update_batch(
+        self,
+        *,
+        completed: dict[str, dict | None] | None = None,
+        failed: dict[str, dict] | None = None,
+    ) -> None:
+        """一次原子写入一批完成/失败状态。
+
+        长任务按批次落盘，既避免每只股票都重写整个 JSON，
+        又保证中断后最多只重算尚未落盘的当前批次。
+        """
+        for key, payload in (completed or {}).items():
+            code = str(key)
+            self.state.completed[code] = dict(payload or {})
+            self.state.failed.pop(code, None)
+
+        for key, payload in (failed or {}).items():
+            code = str(key)
+            self.state.failed[code] = dict(payload or {})
+            self.state.completed.pop(code, None)
+
+        if completed or failed:
+            self.save()
 
     def clear(self) -> None:
         self.state = CheckpointState(
