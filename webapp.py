@@ -21,6 +21,7 @@ from aquant.research.readiness import release_readiness
 from aquant.research.system_validation import run_system_validation
 from aquant.research.stock_detail import stock_detail
 from aquant.research.source_quality import run_source_quality
+from aquant.research.strategy_ablation import run_v1_ablation
 from aquant.research.portfolio import simulate_portfolio
 from aquant.research.walk_forward import run_walk_forward
 from aquant.runtime.resources import current_memory_gb, current_profile
@@ -216,6 +217,13 @@ def _execute_task(job_id: str, action: str, payload: dict) -> None:
             result = {
                 "summary": {"结果行数": len(frame)},
                 "rows": _records(frame, 80),
+            }
+        elif action == "ablation":
+            detail, summary_table, summary = run_v1_ablation()
+            result = {
+                "summary": summary,
+                "rows": _records(summary_table, 50),
+                "ablation_detail": _records(detail, 100),
             }
         elif action == "select_features":
             selected, candidate = build_v2_candidate()
@@ -567,6 +575,7 @@ pre{
         <div class="group-title">策略研究</div>
         <div class="actions">
           <button class="task-btn" onclick="runTask('features')">特征有效性</button>
+          <button class="task-btn" onclick="runTask('ablation')">V1规则消融</button>
           <button class="task-btn" onclick="runTask('select_features')">生成V2候选</button>
           <button class="task-btn" onclick="runTask('walk_forward')">Walk-Forward</button>
           <button class="task-btn" onclick="runTask('compare_models')">V1 / V2 对比</button>
@@ -639,7 +648,7 @@ const actionNames={
   prepare_local:'首次完整准备',readiness:'就绪检查',audit_data:'数据完整性审计',
   source_quality:'数据源质量追踪',repair_data:'定向修复失败',bootstrap:'更新本地数据库',
   scan:'全市场扫描',stock_detail:'单股详情',backtest:'V1真实回测',
-  features:'特征有效性',select_features:'生成V2候选',walk_forward:'Walk-Forward',
+  features:'特征有效性',ablation:'V1规则消融',select_features:'生成V2候选',walk_forward:'Walk-Forward',
   compare_models:'V1 / V2 对比',validate_system:'一键系统验收',
   optimize:'参数优化',formula:'导出东财公式'
 };
@@ -808,6 +817,7 @@ function renderResult(r,action=''){
   if(r.candidate)blocks.push('<div class="block-title">V2候选模型</div>'+pretty(r.candidate));
   if(r.equity_tail&&r.equity_tail.length)blocks.push(equityChart(r.equity_tail)+'<div class="block-title">近期权益明细</div>'+table(r.equity_tail));
   if(r.rows&&r.rows.length)blocks.push('<div class="block-title">结果明细</div>'+table(r.rows));
+  if(r.ablation_detail&&r.ablation_detail.length)blocks.push('<div class="block-title">各预测窗口消融明细</div>'+table(r.ablation_detail));
   if(r.usage&&r.usage.length)blocks.push('<div class="block-title">当前来源使用</div>'+table(r.usage));
   if(r.crosscheck&&r.crosscheck.length)blocks.push('<div class="block-title">多源差异</div>'+table(r.crosscheck));
   if(r.by_regime&&r.by_regime.length)blocks.push('<div class="block-title">市场环境拆分</div>'+table(r.by_regime));
@@ -890,6 +900,7 @@ def api_run(action: str):
         "scan",
         "backtest",
         "features",
+        "ablation",
         "select_features",
         "walk_forward",
         "compare_models",
