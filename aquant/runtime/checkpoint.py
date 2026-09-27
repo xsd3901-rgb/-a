@@ -56,6 +56,16 @@ class JsonCheckpoint:
         self.state.failed.pop(code, None)
         self.save()
 
+    def mark_many_completed(
+        self,
+        items: dict[str, dict | None],
+    ) -> None:
+        for key, payload in items.items():
+            code = str(key)
+            self.state.completed[code] = dict(payload or {})
+            self.state.failed.pop(code, None)
+        self.save()
+
     def mark_failed(
         self,
         key: str,
