@@ -6,6 +6,7 @@ import pandas as pd
 
 from config import SETTINGS
 
+from aquant.data.routing.router import DataSourceRouter
 from aquant.data.safe_fetch import fetch_security_lifecycle_with_timeout
 from aquant.data.universe_store import HistoricalUniverseStore
 
@@ -16,6 +17,7 @@ class HistoricalUniverseService:
     def __init__(self, store_root: str | None = None) -> None:
         root = str(SETTINGS.data_store_dir) if store_root is None else store_root
         self.store = HistoricalUniverseStore(root)
+        self.router = DataSourceRouter(root)
 
     @staticmethod
     def _fresh(path, max_age_hours: float) -> bool:
@@ -23,25 +25,61 @@ class HistoricalUniverseService:
             return False
         return (time.time() - path.stat().st_mtime) / 3600 <= max_age_hours
 
-    def refresh(self, force: bool = False, max_age_hours: float = 72.0) -> pd.DataFrame:
+    def refresh(
+        self,
+        force: bool = False,
+        max_age_hours: float = 72.0,
+    ) -> pd.DataFrame:
         local = self.store.read()
-        if not force and not local.empty and self._fresh(self.store.path, max_age_hours):
+        if (
+            not force
+            and not local.empty
+            and self._fresh(self.store.path, max_age_hours)
+        ):
             return local
 
-        try:
-            remote = fetch_security_lifecycle_with_timeout(timeout_seconds=45.0)
-            if remote is not None and not remote.empty:
-                self.store.save(remote)
-                self.store.refresh_catalog()
-                return self.store.read()
-        except Exception:
-            if not local.empty:
-                return local
-            raise
+        sources = self.router.names(
+            ["baostock"],
+            capability="lifecycle",
+        )
+        if "baostock" in sources:
+            started = time.monotonic()
+            try:
+                remote = fetch_security_lifecycle_with_timeout(
+                    timeout_seconds=45.0
+                )
+                if remote is not None and not remote.empty:
+                    self.store.save(remote)
+                    self.store.refresh_catalog()
+                    self.router.success(
+                        "baostock",
+                        capability="lifecycle",
+                        elapsed_ms=(
+                            time.monotonic() - started
+                        ) * 1000.0,
+                    )
+                    return self.store.read()
+                self.router.failure(
+                    "baostock",
+                    capability="lifecycle",
+                    error="empty lifecycle response",
+                )
+            except Exception as exc:
+                self.router.failure(
+                    "baostock",
+                    capability="lifecycle",
+                    error=str(exc),
+                )
+                if not local.empty:
+                    return local
+                raise
 
         if not local.empty:
             return local
-        raise RuntimeError("历史股票生命周期资料获取失败且本地没有可用快照")
+        raise RuntimeError(
+            "历史股票生命周期资料暂不可用；"
+            "BaoStock 正在冷却或远端失败，且本地没有正式生命周期快照"
+        )
 
     def universe_on(
         self,
