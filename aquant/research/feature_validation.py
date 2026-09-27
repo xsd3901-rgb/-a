@@ -334,7 +334,7 @@ def _research_universe(
 
 
 def _sample_columns() -> list[str]:
-    return [
+    columns = [
         "code",
         "name",
         "listing_date",
@@ -361,6 +361,9 @@ def _sample_columns() -> list[str]:
         *FEATURE_SPECS.keys(),
         *(f"fwd_ret_{h}d" for h in HORIZONS),
     ]
+    # atr_pct 等字段既可能属于基础技术列，也可能属于候选特征；
+    # Parquet 不接受重复列名，因此统一按首次出现去重。
+    return list(dict.fromkeys(columns))
 
 
 def _flush_chunk(
