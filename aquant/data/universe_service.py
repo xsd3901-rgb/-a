@@ -6,6 +6,7 @@ import pandas as pd
 
 from config import SETTINGS
 
+from aquant.data.routing.policy import LIFECYCLE_SOURCE
 from aquant.data.routing.router import DataSourceRouter
 from aquant.data.safe_fetch import fetch_security_lifecycle_with_timeout
 from aquant.data.universe_store import HistoricalUniverseStore
@@ -39,14 +40,14 @@ class HistoricalUniverseService:
             return local
 
         sources = self.router.names(
-            ["baostock"],
+            [LIFECYCLE_SOURCE.name],
             capability="lifecycle",
         )
-        if "baostock" in sources:
+        if LIFECYCLE_SOURCE.name in sources:
             started = time.monotonic()
             try:
                 remote = fetch_security_lifecycle_with_timeout(
-                    timeout_seconds=45.0
+                    timeout_seconds=LIFECYCLE_SOURCE.timeout_seconds
                 )
                 if remote is not None and not remote.empty:
                     self.store.save(remote)
