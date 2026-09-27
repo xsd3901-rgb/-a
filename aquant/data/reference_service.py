@@ -69,6 +69,7 @@ class ReferenceDataService:
         max_age_hours: float = 18.0,
         force: bool = False,
         fallback_local: bool = True,
+        provider_name: str | None = None,
     ) -> pd.DataFrame:
         local = self.store.read_security_master()
         if not force and not local.empty and self._fresh(self.store.security_path, max_age_hours):
@@ -81,6 +82,12 @@ class ReferenceDataService:
                 out["code"] = out["code"].astype(str).str.zfill(6)
                 out["name"] = out["name"].astype(str).str.strip()
                 out = out[["code", "name"]].drop_duplicates("code").reset_index(drop=True)
+                if provider_name:
+                    out["provider"] = str(provider_name)
+                    out["snapshot_date"] = (
+                        pd.Timestamp.now(tz="Asia/Shanghai")
+                        .strftime("%Y-%m-%d")
+                    )
                 self.store.save_security_master(out)
                 self.store.refresh_catalog()
                 return out
