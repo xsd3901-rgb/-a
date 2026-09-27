@@ -3,6 +3,7 @@ from __future__ import annotations
 import gc
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Callable
 
 import pandas as pd
 
@@ -19,7 +20,9 @@ from aquant.risk.trading_rules import (
     sellable_bar,
     trading_age,
 )
+from aquant.runtime.checkpoint import JsonCheckpoint
 from aquant.runtime.resources import current_profile
+from aquant.version import __version__
 from config import SETTINGS, ensure_directories
 from profile import load_strategy_profile
 from strategy import score_history
@@ -516,12 +519,12 @@ def _backtest_one(
     signal_start: pd.Timestamp,
     market_end: pd.Timestamp,
     refresh: bool,
-    score_threshold: int | None,
-    stop_atr_multiple: float | None,
-    target_atr_multiple: float | None,
-    max_hold_days: int | None,
+    score_threshold: int,
+    stop_atr_multiple: float,
+    target_atr_multiple: float,
+    max_hold_days: int,
 ) -> tuple[list[dict], dict | None]:
-    code = str(stock["code"])
+    code = str(stock["code"]).zfill(6)
     name = str(stock["name"])
     listing_date = stock.get("listing_date", pd.NaT)
     delisting_date = stock.get("delisting_date", pd.NaT)
@@ -583,10 +586,39 @@ def run_backtest(
     target_atr_multiple: float | None = None,
     max_hold_days: int | None = None,
     persist: bool = True,
+    progress: Callable[[str], None] | None = None,
 ) -> pd.DataFrame:
+    """执行历史回测；标准持久化运行支持按股票断点续跑。"""
     ensure_directories()
     provider = MarketDataService()
     runtime = current_profile()
+    active_profile = load_strategy_profile()
+
+    effective_score = int(
+        score_threshold
+        if score_threshold is not None
+        else active_profile["score_threshold"]
+    )
+    effective_stop = float(
+        stop_atr_multiple
+        if stop_atr_multiple is not None
+        else active_profile["stop_atr_multiple"]
+    )
+    effective_target = float(
+        target_atr_multiple
+        if target_atr_multiple is not None
+        else active_profile["target_atr_multiple"]
+    )
+    effective_hold = int(
+        max_hold_days
+        if max_hold_days is not None
+        else active_profile["max_hold_days"]
+    )
+
+    def announce(message: str) -> None:
+        print(message)
+        if progress is not None:
+            progress(message)
 
     market_end = provider.latest_trade_date()
     signal_start = market_end - pd.Timedelta(
@@ -605,6 +637,7 @@ def run_backtest(
     if limit and limit > 0:
         stocks = stocks.head(limit)
     stocks = stocks.reset_index(drop=True)
+    stocks["code"] = stocks["code"].astype(str).str.zfill(6)
 
     regime_history = pd.DataFrame()
     try:
@@ -614,103 +647,253 @@ def run_backtest(
             market_end,
         )
         if not regime_history.empty:
-            print(
+            announce(
                 f"已加载沪深市场环境历史 {len(regime_history)} 个交易日，"
                 "用于回测分阶段评估（不改变当前买卖信号）。"
             )
     except Exception as exc:
-        print(f"市场环境历史暂不可用，回测继续: {exc}")
+        announce(f"市场环境历史暂不可用，回测继续: {exc}")
+
+    checkpoint: JsonCheckpoint | None = None
+    resume_enabled = (
+        bool(SETTINGS.backtest_resume)
+        and not refresh
+        and persist
+    )
+    if persist:
+        signature = (
+            f"backtest-v2|{__version__}|"
+            f"{signal_start:%Y-%m-%d}|{market_end:%Y-%m-%d}|"
+            f"score={effective_score}|stop={effective_stop:.6f}|"
+            f"target={effective_target:.6f}|hold={effective_hold}|"
+            f"st={int(bool(SETTINGS.exclude_st))}|"
+            f"commission={SETTINGS.commission_bps:.6f}|"
+            f"mincomm={SETTINGS.min_commission_cny:.4f}|"
+            f"slippage={SETTINGS.slippage_bps:.6f}"
+        )
+        checkpoint = JsonCheckpoint(
+            SETTINGS.report_dir / "backtest_checkpoint.json",
+            signature,
+        )
+        if refresh or not bool(SETTINGS.backtest_resume):
+            checkpoint.clear()
 
     all_trades: list[dict] = []
     errors: list[dict] = []
+    resumed = 0
+    pending_records: list[dict] = []
+    universe_codes = set(stocks["code"].astype(str))
+
+    if checkpoint is not None and resume_enabled:
+        for _, row in stocks.iterrows():
+            code = str(row["code"])
+            payload = checkpoint.state.completed.get(code)
+            if payload is not None:
+                resumed += 1
+                saved_trades = payload.get("trades")
+                if isinstance(saved_trades, list):
+                    all_trades.extend(
+                        item
+                        for item in saved_trades
+                        if isinstance(item, dict)
+                    )
+            else:
+                pending_records.append(row.to_dict())
+    else:
+        pending_records = [
+            row.to_dict()
+            for _, row in stocks.iterrows()
+        ]
+
+    previous_failed = (
+        {
+            code: payload
+            for code, payload in checkpoint.state.failed.items()
+            if code in universe_codes
+        }
+        if checkpoint is not None
+        else {}
+    )
+
     total = len(stocks)
-    flush_every = max(1, runtime.batch_size)
+    flush_every = max(1, int(runtime.batch_size))
     workers = max(
         1,
         min(
             int(runtime.backtest_workers),
             int(runtime.download_workers),
-            max(1, total),
+            max(1, len(pending_records)),
         ),
     )
     started = time.monotonic()
 
-    print(
+    completed_batch: dict[str, dict] = {}
+    failed_batch: dict[str, dict] = {}
+    partial_path = SETTINGS.report_dir / "backtest_partial.csv"
+
+    announce(
         f"历史股票池: {total} 只 | 正式信号区间 "
         f"{signal_start:%Y-%m-%d} ~ {market_end:%Y-%m-%d}"
     )
-    print(
+    announce(
         f"资源档位: {runtime.name} | 批次 {runtime.batch_size} | "
-        f"回测并发 {workers}"
+        f"回测并发 {workers} | 断点跳过 {resumed} | "
+        f"待处理 {len(pending_records)} | 旧失败待重试 {len(previous_failed)}"
     )
 
+    def flush_checkpoint() -> None:
+        nonlocal completed_batch, failed_batch
+        if checkpoint is not None and (
+            completed_batch or failed_batch
+        ):
+            checkpoint.update_batch(
+                completed=completed_batch,
+                failed=failed_batch,
+            )
+            completed_batch = {}
+            failed_batch = {}
+
+        if persist and all_trades:
+            pd.DataFrame(all_trades).to_csv(
+                partial_path,
+                index=False,
+                encoding="utf-8-sig",
+            )
+
     def handle(
+        code: str,
+        name: str,
         result: tuple[list[dict], dict | None],
-        done: int,
+        processed: int,
     ) -> None:
         trades_part, error = result
-        if trades_part:
-            all_trades.extend(trades_part)
-        if error is not None:
+        if error is None:
+            if trades_part:
+                all_trades.extend(trades_part)
+            completed_batch[code] = {
+                "status": (
+                    "trades" if trades_part else "no_trade"
+                ),
+                "trades": trades_part,
+            }
+            failed_batch.pop(code, None)
+        else:
             errors.append(error)
+            prior_attempts = int(
+                (previous_failed.get(code) or {}).get("attempts", 0)
+            )
+            failed_batch[code] = {
+                "代码": code,
+                "名称": name,
+                "error": str(error.get("错误", ""))[:1000],
+                "attempts": prior_attempts + 1,
+            }
+            completed_batch.pop(code, None)
 
-        if done == total or done % flush_every == 0:
+        done = resumed + processed
+        if (
+            processed % flush_every == 0
+            or done == total
+        ):
+            flush_checkpoint()
             elapsed = max(0.001, time.monotonic() - started)
-            per_minute = done / elapsed * 60.0
-            remaining = max(0, total - done)
-            eta = remaining / per_minute if per_minute > 0 else 0.0
-            print(
+            per_minute = processed / elapsed * 60.0
+            remaining = max(
+                0,
+                len(pending_records) - processed,
+            )
+            eta = (
+                remaining / per_minute
+                if per_minute > 0
+                else 0.0
+            )
+            announce(
                 f"回测进度 {done}/{total} | 累计交易 {len(all_trades)} | "
-                f"失败 {len(errors)} | {per_minute:.1f}只/分钟 | "
-                f"ETA {eta:.1f}分钟"
+                f"本次失败 {len(errors)} | 断点跳过 {resumed} | "
+                f"{per_minute:.1f}只/分钟 | ETA {eta:.1f}分钟"
             )
             gc.collect()
 
-    stock_records = [row.to_dict() for _, row in stocks.iterrows()]
-
-    if workers == 1:
-        for done, stock in enumerate(stock_records, start=1):
-            handle(
-                _backtest_one(
-                    stock,
-                    fetch_start=fetch_start,
-                    signal_start=signal_start,
-                    market_end=market_end,
-                    refresh=refresh,
-                    score_threshold=score_threshold,
-                    stop_atr_multiple=stop_atr_multiple,
-                    target_atr_multiple=target_atr_multiple,
-                    max_hold_days=max_hold_days,
-                ),
-                done,
-            )
-    else:
-        with ThreadPoolExecutor(
-            max_workers=workers,
-            thread_name_prefix="aquant-backtest",
-        ) as executor:
-            futures = [
-                executor.submit(
-                    _backtest_one,
-                    stock,
-                    fetch_start=fetch_start,
-                    signal_start=signal_start,
-                    market_end=market_end,
-                    refresh=refresh,
-                    score_threshold=score_threshold,
-                    stop_atr_multiple=stop_atr_multiple,
-                    target_atr_multiple=target_atr_multiple,
-                    max_hold_days=max_hold_days,
+    try:
+        if workers == 1:
+            for processed, stock in enumerate(
+                pending_records,
+                start=1,
+            ):
+                code = str(stock["code"])
+                name = str(stock["name"])
+                handle(
+                    code,
+                    name,
+                    _backtest_one(
+                        stock,
+                        fetch_start=fetch_start,
+                        signal_start=signal_start,
+                        market_end=market_end,
+                        refresh=refresh,
+                        score_threshold=effective_score,
+                        stop_atr_multiple=effective_stop,
+                        target_atr_multiple=effective_target,
+                        max_hold_days=effective_hold,
+                    ),
+                    processed,
                 )
-                for stock in stock_records
-            ]
-            for done, future in enumerate(as_completed(futures), start=1):
-                handle(future.result(), done)
+        else:
+            with ThreadPoolExecutor(
+                max_workers=workers,
+                thread_name_prefix="aquant-backtest",
+            ) as executor:
+                future_map = {
+                    executor.submit(
+                        _backtest_one,
+                        stock,
+                        fetch_start=fetch_start,
+                        signal_start=signal_start,
+                        market_end=market_end,
+                        refresh=refresh,
+                        score_threshold=effective_score,
+                        stop_atr_multiple=effective_stop,
+                        target_atr_multiple=effective_target,
+                        max_hold_days=effective_hold,
+                    ): (
+                        str(stock["code"]),
+                        str(stock["name"]),
+                    )
+                    for stock in pending_records
+                }
+                for processed, future in enumerate(
+                    as_completed(future_map),
+                    start=1,
+                ):
+                    code, name = future_map[future]
+                    handle(
+                        code,
+                        name,
+                        future.result(),
+                        processed,
+                    )
+    except BaseException:
+        flush_checkpoint()
+        announce("回测被中断，已保存当前断点；下次同口径运行会继续。")
+        raise
+
+    flush_checkpoint()
 
     raw_trades = pd.DataFrame(all_trades)
     if not raw_trades.empty:
+        dedupe_cols = [
+            col
+            for col in ["代码", "信号日", "买入日", "卖出日"]
+            if col in raw_trades.columns
+        ]
+        if dedupe_cols:
+            raw_trades = raw_trades.drop_duplicates(
+                subset=dedupe_cols,
+                keep="last",
+            )
         sort_cols = [
-            col for col in ["买入日", "代码", "卖出日"]
+            col
+            for col in ["买入日", "代码", "卖出日"]
             if col in raw_trades.columns
         ]
         if sort_cols:
@@ -718,7 +901,10 @@ def run_backtest(
                 sort_cols
             ).reset_index(drop=True)
 
-    trades = _attach_market_regime(raw_trades, regime_history)
+    trades = _attach_market_regime(
+        raw_trades,
+        regime_history,
+    )
 
     if persist:
         trades.to_csv(
@@ -737,8 +923,9 @@ def run_backtest(
             if error_path.exists():
                 error_path.unlink()
 
-    print(
+    announce(
         f"回测完成：股票 {total} | 交易 {len(trades)} | "
-        f"失败 {len(errors)} | 耗时 {time.monotonic() - started:.1f}秒"
+        f"断点跳过 {resumed} | 本次失败 {len(errors)} | "
+        f"耗时 {time.monotonic() - started:.1f}秒"
     )
     return trades
