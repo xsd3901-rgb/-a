@@ -128,8 +128,10 @@ def scan_market(
     signature = (
         f"scan-v2|{__version__}|{market_date:%Y-%m-%d}|"
         f"score={score_threshold}|adjust={SETTINGS.adjust}|"
-        f"minbars={SETTINGS.min_bars}|st={int(bool(SETTINGS.exclude_st))}|"
-        f"scope={SETTINGS.market_scope}|"
+        f"history={SETTINGS.history_days}|minbars={SETTINGS.min_bars}|"
+        f"st={int(bool(SETTINGS.exclude_st))}|scope={SETTINGS.market_scope}|"
+        f"riskamt={SETTINGS.risk_min_amount_ma5:.4f}|"
+        f"riskatr={SETTINGS.risk_max_atr_pct:.6f}|"
         f"regime={market_regime}:{market_score:.4f}"
     )
     checkpoint = JsonCheckpoint(
