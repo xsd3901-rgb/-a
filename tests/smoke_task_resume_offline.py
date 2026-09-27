@@ -233,6 +233,12 @@ def main() -> None:
                 settings.report_dir / "backtest_checkpoint.json"
             )
             assert backtest_checkpoint.exists()
+            checkpoint_text = backtest_checkpoint.read_text(
+                encoding="utf-8"
+            )
+            assert '"trade_count"' in checkpoint_text
+            assert '"净收益%"' not in checkpoint_text
+            assert (settings.report_dir / "backtest_partial.csv").exists()
 
     print("OFFLINE_TASK_RESUME_OK")
 
