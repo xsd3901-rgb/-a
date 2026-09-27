@@ -544,7 +544,7 @@ def run_source_quality(
             encoding="utf-8-sig",
         )
     (
-        SETTINGS.report_dir
+        report_dir
         / "data_source_quality_summary.json"
     ).write_text(
         json.dumps(
