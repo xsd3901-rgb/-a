@@ -17,6 +17,11 @@ def main() -> None:
     assert "修复失败数据" in text
     assert "就绪检查" in text
     assert "首次完整准备" in text
+    assert "数据中心" in text
+    assert "策略研究" in text
+    assert "数据源质量追踪" in text
+    assert "progressBar" in text
+    assert "近期组合权益" in text
 
     status = client.get("/api/status")
     assert status.status_code == 200
