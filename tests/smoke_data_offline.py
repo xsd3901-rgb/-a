@@ -13,6 +13,7 @@ from aquant.data.context_store import MarketContextStore
 from aquant.data.factor_store import AdjustmentFactorStore
 from aquant.data.quality import validate_bar_frame
 from aquant.data.reference import ReferenceStore
+from aquant.data.reference_service import ReferenceDataService
 from aquant.data.schema import FIELDS
 from aquant.data.storage import MarketStore
 from aquant.runtime.resources import current_profile
@@ -130,9 +131,22 @@ def main() -> None:
             }
         )
         market.save_standard(bars, "600000", "qfq")
+        none_bars = bars.copy()
+        none_bars[FIELDS.adjustment] = "none"
+        market.save_standard(none_bars, "600000", "none")
         loaded = market.read_daily("600000", "qfq")
         assert len(loaded) == 3
         assert market.latest_date("600000", "qfq") == pd.Timestamp("2026-09-24")
+
+        # 远端交易日历不可用时，真实未复权行情可反推实际开市日。
+        reference_service = ReferenceDataService(str(root))
+        derived_calendar = reference_service.derive_trade_calendar_from_local_market()
+        open_days = derived_calendar[derived_calendar["is_open"].astype(bool)]
+        assert pd.Timestamp("2026-09-24") in set(open_days["trade_date"])
+        assert reference_service.store.latest_trade_date("2026-09-25") == pd.Timestamp(
+            "2026-09-24"
+        )
+
         market.refresh_catalog()
 
         context = MarketContextStore(root)
