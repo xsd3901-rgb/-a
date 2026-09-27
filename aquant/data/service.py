@@ -57,6 +57,7 @@ class MarketDataService:
                     fetcher=lambda s=source, t=timeout_seconds: fetch_stock_list_with_timeout(s, t),
                     max_age_hours=float(SETTINGS.cache_hours),
                     force=force,
+                    fallback_local=False,
                 )
                 if df is not None and not df.empty:
                     break
