@@ -81,7 +81,7 @@ def fetch_stock_list_with_timeout(source: str, timeout_seconds: float = 15.0) ->
         raise TimeoutError(f"{source} 股票列表请求超过 {timeout_seconds:.0f} 秒")
 
     try:
-        status, payload = out_queue.get_nowait()
+        status, payload = out_queue.get(timeout=1.0)
     except queue.Empty as exc:
         raise RuntimeError(f"{source} 股票列表子进程未返回结果，退出码 {proc.exitcode}") from exc
 
@@ -170,7 +170,7 @@ def fetch_trade_calendar_with_timeout(
         raise TimeoutError(f"{source} 交易日历请求超过 {timeout_seconds:.0f} 秒")
 
     try:
-        status, payload = out_queue.get_nowait()
+        status, payload = out_queue.get(timeout=1.0)
     except queue.Empty as exc:
         raise RuntimeError(f"{source} 交易日历子进程未返回结果，退出码 {proc.exitcode}") from exc
 
@@ -246,7 +246,7 @@ def fetch_industry_map_with_timeout(
         raise TimeoutError(f"{source} 行业分类请求超过 {timeout_seconds:.0f} 秒")
 
     try:
-        status, payload = out_queue.get_nowait()
+        status, payload = out_queue.get(timeout=1.0)
     except queue.Empty as exc:
         raise RuntimeError(f"{source} 行业分类子进程未返回结果，退出码 {proc.exitcode}") from exc
 
@@ -369,7 +369,7 @@ def fetch_index_daily_with_timeout(
         raise TimeoutError(f"{source} 指数日线请求超过 {timeout_seconds:.0f} 秒: {index_symbol}")
 
     try:
-        status, payload = out_queue.get_nowait()
+        status, payload = out_queue.get(timeout=1.0)
     except queue.Empty as exc:
         raise RuntimeError(
             f"{source} 指数日线子进程未返回结果，退出码 {proc.exitcode}: {index_symbol}"
@@ -484,7 +484,7 @@ def fetch_adjust_factors_with_timeout(
         raise TimeoutError(f"BaoStock 复权因子请求超过 {timeout_seconds:.0f} 秒: {symbol}")
 
     try:
-        status, payload = out_queue.get_nowait()
+        status, payload = out_queue.get(timeout=1.0)
     except queue.Empty as exc:
         raise RuntimeError(
             f"BaoStock 复权因子子进程未返回结果，退出码 {proc.exitcode}: {symbol}"
@@ -607,7 +607,7 @@ def fetch_security_lifecycle_with_timeout(
         )
 
     try:
-        status, payload = out_queue.get_nowait()
+        status, payload = out_queue.get(timeout=1.0)
     except queue.Empty as exc:
         raise RuntimeError(
             f"BaoStock 股票生命周期子进程未返回结果，退出码 {proc.exitcode}"
