@@ -64,7 +64,15 @@ def main() -> None:
         router = DataSourceRouter(root)
         health.mark_failure(
             "stock_list:eastmoney",
-            "offline test",
+            "offline test 1",
+        )
+        assert "eastmoney" in router.names(
+            ["eastmoney", "baostock"],
+            capability="stock_list",
+        )
+        health.mark_failure(
+            "stock_list:eastmoney",
+            "offline test 2",
         )
         selected = router.names(
             ["eastmoney", "baostock"],
