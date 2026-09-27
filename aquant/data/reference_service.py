@@ -8,6 +8,7 @@ import pandas as pd
 from config import SETTINGS
 
 from aquant.data.reference import ReferenceStore
+from aquant.data.routing.policy import CALENDAR_SOURCES
 from aquant.data.routing.router import DataSourceRouter
 from aquant.data.safe_fetch import fetch_trade_calendar_with_timeout
 from aquant.data.seed_reference import (
@@ -107,8 +108,8 @@ class ReferenceDataService:
 
         errors: list[str] = []
         source_timeout = {
-            "akshare": 20.0,
-            "baostock": 35.0,
+            spec.name: spec.timeout_seconds
+            for spec in CALENDAR_SOURCES
         }
         sources = self.router.names(
             list(source_timeout),
