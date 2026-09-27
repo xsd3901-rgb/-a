@@ -341,167 +341,501 @@ PAGE = r"""
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>A-Quant 沪深A股量化终端</title>
 <style>
-:root{--bg:#0b1020;--panel:#121a2f;--panel2:#17213b;--text:#e9eefc;--muted:#95a2c6;--line:#273454;--accent:#7aa2ff;--ok:#57d39b;--warn:#ffcc66;--bad:#ff7b8a}
+:root{
+  --bg:#08101f;--bg2:#0d1730;--panel:#111c33;--panel2:#16233e;
+  --text:#edf3ff;--muted:#8fa1c4;--line:#263759;--line2:#33496f;
+  --accent:#6d9cff;--accent2:#5ce1d0;--ok:#55d59a;--warn:#f5c96a;
+  --bad:#ff7585;--shadow:0 18px 44px rgba(0,0,0,.24)
+}
 *{box-sizing:border-box}
-body{margin:0;background:linear-gradient(135deg,#080d1b,#0d1430 55%,#111a33);color:var(--text);font-family:Inter,"Microsoft YaHei",Arial,sans-serif}
-.wrap{max-width:1500px;margin:0 auto;padding:22px}
-.header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:18px}
-h1{margin:0;font-size:28px}.sub{color:var(--muted);margin-top:8px;line-height:1.6}
-.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:14px}
-.card{background:rgba(18,26,47,.96);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.18)}
-.k{color:var(--muted);font-size:12px}.v{font-size:20px;margin-top:6px;font-weight:700}
-.controls{display:flex;flex-wrap:wrap;gap:9px;align-items:center}
-input,select{background:#0d152a;color:var(--text);border:1px solid var(--line);border-radius:9px;padding:9px 11px}
-button{background:#24355c;color:var(--text);border:1px solid #344a79;border-radius:9px;padding:10px 14px;cursor:pointer;font-weight:600}
-button:hover{background:#2d4476}button.primary{background:#315ecb;border-color:#4776df}button.danger{background:#63313b}
-.status{padding:12px 14px;border-radius:10px;background:#0d152a;border:1px solid var(--line);margin-top:12px;white-space:pre-wrap}
-.tabs{display:flex;gap:8px;margin:14px 0}.pill{font-size:12px;color:var(--muted);border:1px solid var(--line);padding:6px 9px;border-radius:999px}
-table{border-collapse:collapse;width:100%;font-size:12px;min-width:900px}th,td{border-bottom:1px solid var(--line);padding:8px;text-align:left;white-space:nowrap}th{position:sticky;top:0;background:#18233d}
-.tablewrap{overflow:auto;max-height:520px;border:1px solid var(--line);border-radius:10px}
-pre{white-space:pre-wrap;word-break:break-word;background:#0b1327;padding:12px;border-radius:10px;color:#cdd8f7;max-height:500px;overflow:auto}
+html{scroll-behavior:smooth}
+body{
+  margin:0;color:var(--text);font-family:Inter,"Microsoft YaHei",Arial,sans-serif;
+  background:
+    radial-gradient(circle at 12% 0%,rgba(75,113,210,.18),transparent 28%),
+    radial-gradient(circle at 95% 12%,rgba(61,197,188,.10),transparent 24%),
+    linear-gradient(145deg,var(--bg),var(--bg2) 58%,#10182b);
+  min-height:100vh
+}
+button,input,select{font:inherit}
+.shell{max-width:1580px;margin:0 auto;padding:22px}
+.hero{
+  display:flex;justify-content:space-between;gap:18px;align-items:center;
+  padding:20px 22px;margin-bottom:15px;border:1px solid var(--line);
+  border-radius:20px;background:linear-gradient(125deg,rgba(20,33,62,.98),rgba(13,24,48,.92));
+  box-shadow:var(--shadow)
+}
+.brand{display:flex;align-items:center;gap:14px}
+.logo{
+  width:48px;height:48px;border-radius:15px;display:grid;place-items:center;
+  font-weight:900;font-size:20px;letter-spacing:-1px;color:#061322;
+  background:linear-gradient(135deg,var(--accent2),#8eb0ff)
+}
+h1{margin:0;font-size:28px;letter-spacing:-.4px}
+.sub{color:var(--muted);margin-top:7px;line-height:1.6;font-size:13px}
+.hero-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.pill{
+  font-size:12px;color:#b8c8e9;border:1px solid var(--line2);
+  padding:7px 10px;border-radius:999px;background:rgba(11,21,42,.7)
+}
+.pill.live{color:var(--ok);border-color:rgba(85,213,154,.35)}
+.metrics{
+  display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:11px;margin-bottom:15px
+}
+.metric{
+  min-height:96px;padding:15px 16px;border:1px solid var(--line);border-radius:16px;
+  background:rgba(17,28,51,.94);box-shadow:0 10px 30px rgba(0,0,0,.13)
+}
+.metric .k{color:var(--muted);font-size:12px}
+.metric .v{font-size:19px;font-weight:800;margin-top:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.metric .hint{color:#7185aa;font-size:11px;margin-top:5px}
+.workspace{display:grid;grid-template-columns:390px minmax(0,1fr);gap:14px;align-items:start}
+.card{
+  background:rgba(17,28,51,.96);border:1px solid var(--line);border-radius:17px;
+  padding:16px;box-shadow:0 12px 34px rgba(0,0,0,.16)
+}
+.sticky{position:sticky;top:14px}
+.section-title{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}
+.section-title b{font-size:15px}
+.control-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:13px}
+.field{display:flex;flex-direction:column;gap:5px;color:var(--muted);font-size:12px}
+.field.full{grid-column:1/-1}
+input,select{
+  width:100%;background:#0c162b;color:var(--text);border:1px solid var(--line);
+  border-radius:10px;padding:10px 11px;outline:none;transition:.15s
+}
+input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(109,156,255,.12)}
+.toggle{
+  display:flex;align-items:center;gap:8px;padding:10px 11px;background:#0c162b;
+  border:1px solid var(--line);border-radius:10px;color:var(--text)
+}
+.toggle input{width:auto}
+.group{border-top:1px solid var(--line);padding-top:13px;margin-top:13px}
+.group:first-of-type{border-top:0;padding-top:0;margin-top:0}
+.group-title{font-size:12px;color:#a9b9d8;font-weight:800;margin-bottom:8px;text-transform:uppercase;letter-spacing:.55px}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+button{
+  border:1px solid #34496f;background:#1c2c4b;color:var(--text);
+  border-radius:10px;padding:10px 11px;cursor:pointer;font-weight:700;
+  transition:transform .12s ease,background .12s ease,border-color .12s ease;
+  text-align:left
+}
+button:hover{background:#253a62;border-color:#496796;transform:translateY(-1px)}
+button.primary{background:linear-gradient(135deg,#315fca,#4077dc);border-color:#5684e5}
+button.teal{background:linear-gradient(135deg,#14796e,#1d9284);border-color:#2eaa9b}
+button.ghost{background:#111c33}
+button:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.status-card{margin-bottom:14px}
+.status-line{display:flex;gap:11px;align-items:flex-start}
+.status-dot{
+  width:10px;height:10px;border-radius:50%;margin-top:5px;background:var(--ok);
+  box-shadow:0 0 0 5px rgba(85,213,154,.10)
+}
+.status-dot.running{background:var(--accent);box-shadow:0 0 0 5px rgba(109,156,255,.12)}
+.status-dot.failed{background:var(--bad);box-shadow:0 0 0 5px rgba(255,117,133,.10)}
+.status-main{flex:1;min-width:0}
+.status-text{white-space:pre-wrap;word-break:break-word;line-height:1.55}
+.progress-shell{
+  margin-top:12px;height:8px;background:#0a1325;border:1px solid var(--line);
+  border-radius:999px;overflow:hidden
+}
+.progress-bar{
+  height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));
+  transition:width .3s ease
+}
+.result-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:11px}
+.summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:10px 0 14px}
+.summary-item{
+  border:1px solid var(--line);border-radius:12px;padding:11px 12px;background:#0c162b;
+  min-height:70px
+}
+.summary-item .sk{font-size:11px;color:var(--muted);margin-bottom:6px}
+.summary-item .sv{font-size:15px;font-weight:800;word-break:break-word}
+.block-title{font-size:14px;margin:18px 0 8px}
+.tablewrap{
+  overflow:auto;max-height:540px;border:1px solid var(--line);border-radius:12px;background:#0c162b
+}
+table{border-collapse:collapse;width:100%;font-size:12px;min-width:850px}
+th,td{border-bottom:1px solid #1e2d49;padding:9px 10px;text-align:left;white-space:nowrap}
+th{
+  position:sticky;top:0;z-index:1;background:#17243f;color:#bed0ef;font-weight:800
+}
+tbody tr:hover{background:#14223d}
+pre{
+  white-space:pre-wrap;word-break:break-word;background:#0b1428;padding:12px;
+  border:1px solid var(--line);border-radius:11px;color:#cbd8f0;max-height:480px;overflow:auto
+}
+.empty{
+  min-height:210px;display:grid;place-items:center;text-align:center;color:var(--muted);
+  border:1px dashed var(--line);border-radius:13px;background:rgba(9,18,36,.35)
+}
+.empty strong{display:block;color:#c7d5ef;font-size:15px;margin-bottom:6px}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
-.section-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
-@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}.header{display:block}}
-@media(max-width:600px){.grid{grid-template-columns:1fr}.wrap{padding:12px}}
+.chart{
+  width:100%;height:160px;border:1px solid var(--line);border-radius:12px;
+  background:#0b1428;margin:8px 0 14px;padding:8px
+}
+.reports-card{margin-top:14px}
+.report-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mini-note{font-size:11px;color:var(--muted);line-height:1.5}
+@media(max-width:1150px){
+  .metrics{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .workspace{grid-template-columns:1fr}.sticky{position:static}
+}
+@media(max-width:760px){
+  .shell{padding:11px}.hero{align-items:flex-start}.hero-right{display:none}
+  .brand{align-items:flex-start}.logo{width:42px;height:42px}
+  h1{font-size:22px}.metrics{grid-template-columns:1fr 1fr}
+  .control-grid,.actions,.summary-grid{grid-template-columns:1fr 1fr}
+}
+@media(max-width:500px){
+  .metrics,.summary-grid,.control-grid,.actions{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <div class="header">
-    <div>
-      <h1>A-Quant 沪深A股量化终端</h1>
-      <div class="sub">免费数据源 · 历史股票池 · 点时ST/停牌 · 未复权真实成交层 · 特征验证 · Walk-Forward · V1/V2 对照 · 有限资金组合 · 逐日盯市回撤</div>
+<div class="shell">
+  <header class="hero">
+    <div class="brand">
+      <div class="logo">AQ</div>
+      <div>
+        <h1>A-Quant 沪深A股量化终端</h1>
+        <div class="sub">扫描 · 数据质量 · 真实成交回测 · Walk-Forward · V1/V2 研究验收</div>
+      </div>
     </div>
-    <span class="pill">v{{ version }} · Local Research Terminal</span>
-  </div>
-
-  <div class="grid">
-    <div class="card"><div class="k">运行资源档</div><div class="v" id="runtime">--</div></div>
-    <div class="card"><div class="k">可用内存</div><div class="v" id="memory">--</div></div>
-    <div class="card"><div class="k">当前策略阈值</div><div class="v" id="threshold">--</div></div>
-    <div class="card"><div class="k">模型状态</div><div class="v" id="modelState">--</div></div>
-  </div>
-
-  <div class="card">
-    <div class="section-title"><b>任务控制</b><span class="pill">同一时间只运行一个重任务</span></div>
-    <div class="controls">
-      <label>股票数量 <input id="limit" type="number" min="0" placeholder="空=默认/全市场"></label>
-      <label>预测窗
-        <select id="horizon"><option>5</option><option selected>10</option><option>20</option></select>
-      </label>
-      <label>单股代码 <input id="stockCode" type="text" maxlength="6" placeholder="例如600000"></label>
-      <label><input id="refresh" type="checkbox"> 强制刷新</label>
+    <div class="hero-right">
+      <span class="pill live">● 本地终端</span>
+      <span class="pill">v{{ version }}</span>
+      <span class="pill">Free Data Stack</span>
     </div>
-    <div class="controls" style="margin-top:12px">
-      <button class="primary" onclick="runTask('prepare_local')">首次完整准备</button>
-      <button class="primary" onclick="runTask('bootstrap')">建立/更新本地数据库</button>
-      <button onclick="runTask('readiness')">就绪检查</button>
-      <button onclick="runTask('audit_data')">本地数据审计</button>
-      <button onclick="runTask('source_quality')">数据源质量追踪</button>
-      <button onclick="runTask('repair_data')">修复失败数据</button>
-      <button class="primary" onclick="runTask('scan')">全市场扫描</button>
-      <button onclick="runTask('stock_detail')">查看单股详情</button>
-      <button onclick="runTask('backtest')">V1真实成交回测</button>
-      <button onclick="runTask('features')">特征有效性</button>
-      <button onclick="runTask('select_features')">生成V2候选</button>
-      <button onclick="runTask('walk_forward')">Walk-Forward</button>
-      <button onclick="runTask('compare_models')">V1 / V2 对比</button>
-      <button onclick="runTask('validate_system')">一键系统验收</button>
-      <button onclick="runTask('optimize')">参数优化</button>
-      <button onclick="runTask('formula')">导出东财公式</button>
-      <button onclick="refreshStatus()">刷新状态</button>
+  </header>
+
+  <section class="metrics">
+    <div class="metric"><div class="k">运行资源档</div><div class="v" id="runtime">--</div><div class="hint">自动按内存与CPU调整</div></div>
+    <div class="metric"><div class="k">可用内存</div><div class="v" id="memory">--</div><div class="hint">长任务会自适应降载</div></div>
+    <div class="metric"><div class="k">当前策略阈值</div><div class="v" id="threshold">--</div><div class="hint">活动 V1/V2 配置</div></div>
+    <div class="metric"><div class="k">模型状态</div><div class="v" id="modelState">--</div><div class="hint">候选模型不会自动晋级</div></div>
+    <div class="metric"><div class="k">任务状态</div><div class="v" id="taskState">空闲</div><div class="hint" id="taskHint">可启动新任务</div></div>
+  </section>
+
+  <div class="workspace">
+    <aside class="card sticky">
+      <div class="section-title">
+        <b>控制台</b>
+        <span class="pill">一次一个重任务</span>
+      </div>
+
+      <div class="control-grid">
+        <label class="field">股票数量
+          <input id="limit" type="number" min="0" placeholder="空 = 默认 / 全市场">
+        </label>
+        <label class="field">预测窗口
+          <select id="horizon">
+            <option>5</option><option selected>10</option><option>20</option>
+          </select>
+        </label>
+        <label class="field">单股代码
+          <input id="stockCode" type="text" maxlength="6" inputmode="numeric" placeholder="例如 600000">
+        </label>
+        <label class="field">
+          数据刷新
+          <span class="toggle"><input id="refresh" type="checkbox"> 强制刷新 / 放弃旧断点</span>
+        </label>
+      </div>
+
+      <div class="group">
+        <div class="group-title">日常使用</div>
+        <div class="actions">
+          <button class="primary task-btn" onclick="runTask('scan')">全市场扫描</button>
+          <button class="task-btn" onclick="runTask('stock_detail')">单股详情</button>
+          <button class="task-btn" onclick="runTask('backtest')">V1真实回测</button>
+          <button class="ghost" onclick="refreshStatus()">刷新状态</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title">数据中心</div>
+        <div class="actions">
+          <button class="teal task-btn" onclick="runTask('bootstrap')">更新本地数据库</button>
+          <button class="task-btn" onclick="runTask('audit_data')">数据完整性审计</button>
+          <button class="task-btn" onclick="runTask('source_quality')">数据源质量追踪</button>
+          <button class="task-btn" onclick="runTask('repair_data')">定向修复失败</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title">策略研究</div>
+        <div class="actions">
+          <button class="task-btn" onclick="runTask('features')">特征有效性</button>
+          <button class="task-btn" onclick="runTask('select_features')">生成V2候选</button>
+          <button class="task-btn" onclick="runTask('walk_forward')">Walk-Forward</button>
+          <button class="task-btn" onclick="runTask('compare_models')">V1 / V2 对比</button>
+          <button class="task-btn" onclick="runTask('validate_system')">一键系统验收</button>
+          <button class="task-btn" onclick="runTask('optimize')">参数优化</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <div class="group-title">系统工具</div>
+        <div class="actions">
+          <button class="primary task-btn" onclick="runTask('prepare_local')">首次完整准备</button>
+          <button class="task-btn" onclick="runTask('readiness')">就绪检查</button>
+          <button class="task-btn" onclick="runTask('formula')">导出东财公式</button>
+        </div>
+      </div>
+    </aside>
+
+    <main>
+      <section class="card status-card">
+        <div class="section-title">
+          <b>运行状态</b>
+          <span id="jobBadge" class="pill">无任务</span>
+        </div>
+        <div class="status-line">
+          <span id="statusDot" class="status-dot"></span>
+          <div class="status-main">
+            <div id="status" class="status-text">终端已就绪。</div>
+            <div class="progress-shell"><div id="progressBar" class="progress-bar"></div></div>
+            <div id="progressHint" class="mini-note" style="margin-top:7px">等待任务。</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="result-head">
+          <div>
+            <b>任务结果</b>
+            <div class="mini-note">关键指标优先展示，明细表支持横向滚动。</div>
+          </div>
+          <span class="pill" id="resultKind">暂无结果</span>
+        </div>
+        <div id="summary"></div>
+        <div id="result" class="empty">
+          <div><strong>还没有任务结果</strong>从左侧选择扫描、回测或研究任务。</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <section class="card reports-card">
+    <div class="section-title">
+      <div>
+        <b>本地报告</b>
+        <div class="mini-note">最近生成的 CSV / JSON 报告会显示在这里。</div>
+      </div>
+      <div class="report-head">
+        <span class="pill" id="reportCount">0 个文件</span>
+        <span class="pill" id="reportPath"></span>
+      </div>
     </div>
-    <div id="status" class="status">就绪。</div>
-  </div>
-
-  <div class="card">
-    <div class="section-title"><b>任务结果</b><span id="jobBadge" class="pill">无任务</span></div>
-    <div id="summary"></div>
-    <div id="result">暂无结果。</div>
-  </div>
-
-  <div class="card">
-    <div class="section-title"><b>本地报告</b><span class="pill" id="reportPath"></span></div>
-    <div class="tablewrap"><div id="reports">加载中...</div></div>
-  </div>
+    <div id="reports">加载中...</div>
+  </section>
 </div>
 
 <script>
-let activeJob=null, pollTimer=null;
+let activeJob=null,pollTimer=null,lastAction='';
 const $=id=>document.getElementById(id);
+const actionNames={
+  prepare_local:'首次完整准备',readiness:'就绪检查',audit_data:'数据完整性审计',
+  source_quality:'数据源质量追踪',repair_data:'定向修复失败',bootstrap:'更新本地数据库',
+  scan:'全市场扫描',stock_detail:'单股详情',backtest:'V1真实回测',
+  features:'特征有效性',select_features:'生成V2候选',walk_forward:'Walk-Forward',
+  compare_models:'V1 / V2 对比',validate_system:'一键系统验收',
+  optimize:'参数优化',formula:'导出东财公式'
+};
 function esc(v){return String(v??'').replace(/[&<>"']/g,s=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]))}
+function compact(v){
+  if(v===null||v===undefined||v==='')return '--';
+  if(typeof v==='number')return Number.isInteger(v)?String(v):String(Math.round(v*1000)/1000);
+  if(typeof v==='boolean')return v?'是':'否';
+  if(typeof v==='object')return JSON.stringify(v);
+  return String(v);
+}
+function statusClass(v){
+  const s=String(v??'');
+  if(/FAIL|失败|异常|未通过|错误/.test(s))return 'bad';
+  if(/WARN|警告|观察|待|降级|部分/.test(s))return 'warn';
+  if(/OK|通过|完成|就绪|成功/.test(s))return 'ok';
+  return '';
+}
 function table(rows){
-  if(!rows||!rows.length)return '<div class="sub">没有表格数据</div>';
+  if(!rows||!rows.length)return '<div class="empty" style="min-height:110px"><div>没有表格数据</div></div>';
   const keys=Object.keys(rows[0]);
   return '<div class="tablewrap"><table><thead><tr>'+keys.map(k=>'<th>'+esc(k)+'</th>').join('')+
-  '</tr></thead><tbody>'+rows.map(r=>'<tr>'+keys.map(k=>'<td>'+esc(r[k])+'</td>').join('')+
-  '</tr>').join('')+'</tbody></table></div>';
+    '</tr></thead><tbody>'+rows.map(r=>'<tr>'+keys.map(k=>{
+      const v=r[k],cls=/状态|结果|风险/.test(k)?statusClass(v):'';
+      return '<td class="'+cls+'">'+esc(compact(v))+'</td>';
+    }).join('')+'</tr>').join('')+'</tbody></table></div>';
+}
+function summaryCards(o){
+  if(!o||typeof o!=='object'||Array.isArray(o))return '';
+  const entries=Object.entries(o);
+  if(!entries.length)return '';
+  return '<div class="summary-grid">'+entries.map(([k,v])=>
+    '<div class="summary-item"><div class="sk">'+esc(k)+'</div><div class="sv '+statusClass(v)+'">'+esc(compact(v))+'</div></div>'
+  ).join('')+'</div>';
 }
 function pretty(o){return '<pre>'+esc(JSON.stringify(o,null,2))+'</pre>'}
 function payload(){
   let raw=$('limit').value.trim();
-  return {limit:raw===''?null:Number(raw),refresh:$('refresh').checked,horizon:Number($('horizon').value),code:$('stockCode').value.trim()};
+  return {
+    limit:raw===''?null:Number(raw),
+    refresh:$('refresh').checked,
+    horizon:Number($('horizon').value),
+    code:$('stockCode').value.trim()
+  };
+}
+function setBusy(busy){
+  document.querySelectorAll('.task-btn').forEach(b=>b.disabled=busy);
+  $('taskState').textContent=busy?'运行中':'空闲';
+  $('taskState').className='v '+(busy?'warn':'ok');
+  $('taskHint').textContent=busy?'请等待当前任务结束':'可启动新任务';
+}
+function setProgress(message,status='running'){
+  const text=String(message||'');
+  const m=text.match(/(\d+)\s*\/\s*(\d+)/);
+  let pct=0;
+  if(m&&Number(m[2])>0)pct=Math.max(0,Math.min(100,Number(m[1])/Number(m[2])*100));
+  else if(status==='completed')pct=100;
+  $('progressBar').style.width=pct+'%';
+  $('progressHint').textContent=m?('当前进度 '+m[1]+' / '+m[2]+' · '+pct.toFixed(1)+'%'):(status==='running'?'任务处理中…':'等待任务。');
+  $('statusDot').className='status-dot '+(status==='failed'?'failed':status==='running'?'running':'');
 }
 async function runTask(action){
   if(action==='prepare_local'){
     const ok=confirm('首次完整准备会建立/更新沪深全市场本地数据库，并继续运行研究验收。首次执行可能耗时较长。确认开始吗？');
     if(!ok)return;
   }
-  $('status').textContent='正在提交任务...';
-  $('result').innerHTML='';
+  lastAction=action;
+  setBusy(true);
+  $('status').textContent='正在提交 '+(actionNames[action]||action)+'…';
+  $('result').className='empty';
+  $('result').innerHTML='<div><strong>任务已提交</strong>正在等待计算结果。</div>';
   $('summary').innerHTML='';
-  const r=await fetch('/api/run/'+action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload())});
-  const d=await r.json();
-  if(!d.ok){$('status').textContent=d.error||'启动失败';if(d.job_id){activeJob=d.job_id;startPolling()}return}
-  activeJob=d.job_id;$('jobBadge').textContent=action+' · '+activeJob;$('status').textContent='任务已启动，正在后台运行...';startPolling();
+  $('resultKind').textContent=actionNames[action]||action;
+  setProgress('', 'running');
+  try{
+    const r=await fetch('/api/run/'+action,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload())
+    });
+    const d=await r.json();
+    if(!d.ok){
+      $('status').textContent=d.error||'启动失败';
+      if(d.job_id){activeJob=d.job_id;startPolling()}else setBusy(false);
+      return;
+    }
+    activeJob=d.job_id;
+    $('jobBadge').textContent=(actionNames[action]||action)+' · '+activeJob;
+    $('status').textContent='任务已启动，正在后台运行…';
+    startPolling();
+  }catch(err){
+    $('status').textContent='请求失败：'+err;
+    $('statusDot').className='status-dot failed';
+    setBusy(false);
+  }
 }
 function startPolling(){
   if(pollTimer)clearInterval(pollTimer);
-  pollJob();pollTimer=setInterval(pollJob,1500);
+  pollJob();
+  pollTimer=setInterval(pollJob,1500);
 }
 async function pollJob(){
   if(!activeJob)return;
-  const r=await fetch('/api/job/'+activeJob);const d=await r.json();
-  if(!d.ok)return;
-  const j=d.job;
-  $('status').textContent=(j.status||'')+' · '+(j.message||'');
-  if(j.status==='completed'){
-    clearInterval(pollTimer);pollTimer=null;
-    $('status').innerHTML='<span class="ok">任务完成</span> · '+esc(j.finished_at||'');
-    renderResult(j.result||{});refreshStatus();
-  }else if(j.status==='failed'){
-    clearInterval(pollTimer);pollTimer=null;
-    $('status').innerHTML='<span class="bad">任务失败：</span>'+esc(j.error||j.message||'');
-    $('result').innerHTML=pretty({error:j.error,traceback:j.traceback});
+  try{
+    const r=await fetch('/api/job/'+activeJob);
+    const d=await r.json();
+    if(!d.ok)return;
+    const j=d.job;
+    const action=j.action||lastAction;
+    if(action)lastAction=action;
+    $('status').textContent=(j.message||j.status||'运行中');
+    $('jobBadge').textContent=(actionNames[action]||action||'任务')+' · '+activeJob;
+    setProgress(j.message||'',j.status||'running');
+    if(j.status==='completed'){
+      clearInterval(pollTimer);pollTimer=null;
+      $('status').innerHTML='<span class="ok">任务完成</span> · '+esc(j.finished_at||'');
+      $('jobBadge').textContent=(actionNames[action]||action||'任务')+' · 已完成';
+      renderResult(j.result||{},action);
+      setProgress('', 'completed');
+      setBusy(false);
+      activeJob=null;
+      refreshStatus();
+    }else if(j.status==='failed'){
+      clearInterval(pollTimer);pollTimer=null;
+      $('status').innerHTML='<span class="bad">任务失败：</span> '+esc(j.error||j.message||'');
+      $('result').className='';
+      $('result').innerHTML=pretty({error:j.error,traceback:j.traceback});
+      $('jobBadge').textContent=(actionNames[action]||action||'任务')+' · 失败';
+      setProgress('', 'failed');
+      setBusy(false);
+      activeJob=null;
+    }
+  }catch(err){
+    $('status').textContent='状态轮询暂时失败：'+err;
   }
 }
-function renderResult(r){
+function equityChart(rows){
+  if(!rows||rows.length<2)return '';
+  const keys=Object.keys(rows[0]||{});
+  const key=keys.find(k=>/权益|净值|equity/i.test(k));
+  if(!key)return '';
+  const vals=rows.map(r=>Number(r[key])).filter(Number.isFinite);
+  if(vals.length<2)return '';
+  const min=Math.min(...vals),max=Math.max(...vals),span=max-min||1;
+  const w=900,h=130,p=10;
+  const pts=vals.map((v,i)=>{
+    const x=p+i*(w-2*p)/(vals.length-1);
+    const y=h-p-(v-min)*(h-2*p)/span;
+    return x.toFixed(1)+','+y.toFixed(1);
+  }).join(' ');
+  return '<div class="block-title">近期组合权益</div><div class="chart"><svg viewBox="0 0 '+w+' '+h+'" width="100%" height="100%" preserveAspectRatio="none"><polyline fill="none" stroke="#6d9cff" stroke-width="3" points="'+pts+'"/></svg></div>';
+}
+function renderResult(r,action=''){
+  $('result').className='';
+  $('resultKind').textContent=actionNames[action]||action||'结果';
   let blocks=[];
-  if(r.summary)blocks.push('<h3>汇总</h3>'+pretty(r.summary));
-  if(r.metrics)blocks.push('<h3>交易统计</h3>'+pretty(r.metrics));
-  if(r.portfolio)blocks.push('<h3>有限资金组合</h3>'+pretty(r.portfolio));
-  if(r.profile)blocks.push('<h3>策略参数</h3>'+pretty(r.profile));
-  if(r.candidate)blocks.push('<h3>V2候选模型</h3>'+pretty(r.candidate));
-  if(r.rows)blocks.push('<h3>结果</h3>'+table(r.rows));
-  if(r.usage&&r.usage.length)blocks.push('<h3>当前来源使用</h3>'+table(r.usage));
-  if(r.crosscheck&&r.crosscheck.length)blocks.push('<h3>多源差异</h3>'+table(r.crosscheck));
-  if(r.by_regime&&r.by_regime.length)blocks.push('<h3>市场环境拆分</h3>'+table(r.by_regime));
-  if(r.trades&&r.trades.length)blocks.push('<h3>交易样本</h3>'+table(r.trades));
+  if(r.summary){
+    $('summary').innerHTML=summaryCards(r.summary);
+  }else if(r.metrics){
+    $('summary').innerHTML=summaryCards(r.metrics);
+  }else{
+    $('summary').innerHTML='';
+  }
+  if(r.metrics)blocks.push('<div class="block-title">交易统计</div>'+summaryCards(r.metrics));
+  if(r.portfolio)blocks.push('<div class="block-title">有限资金组合</div>'+summaryCards(r.portfolio));
+  if(r.profile)blocks.push('<div class="block-title">策略参数</div>'+summaryCards(r.profile));
+  if(r.candidate)blocks.push('<div class="block-title">V2候选模型</div>'+pretty(r.candidate));
+  if(r.equity_tail&&r.equity_tail.length)blocks.push(equityChart(r.equity_tail)+'<div class="block-title">近期权益明细</div>'+table(r.equity_tail));
+  if(r.rows&&r.rows.length)blocks.push('<div class="block-title">结果明细</div>'+table(r.rows));
+  if(r.usage&&r.usage.length)blocks.push('<div class="block-title">当前来源使用</div>'+table(r.usage));
+  if(r.crosscheck&&r.crosscheck.length)blocks.push('<div class="block-title">多源差异</div>'+table(r.crosscheck));
+  if(r.by_regime&&r.by_regime.length)blocks.push('<div class="block-title">市场环境拆分</div>'+table(r.by_regime));
+  if(r.trades&&r.trades.length)blocks.push('<div class="block-title">交易样本</div>'+table(r.trades));
   $('result').innerHTML=blocks.join('')||pretty(r);
 }
 async function refreshStatus(){
-  const r=await fetch('/api/status');const d=await r.json();
-  if(!d.ok)return;
-  $('runtime').textContent=d.runtime.name;
-  $('memory').textContent=d.memory.available_gb+' GB';
-  $('threshold').textContent=d.profile.score_threshold;
-  $('modelState').textContent=d.models.active_model+' / '+d.models.v2_state;
-  $('reportPath').textContent=d.paths.reports;
-  $('reports').innerHTML=table(d.reports);
-  if(d.active_job && !activeJob){
-    activeJob=d.active_job;
-    $('jobBadge').textContent='运行中 · '+activeJob;
-    startPolling();
+  try{
+    const r=await fetch('/api/status');
+    const d=await r.json();
+    if(!d.ok)return;
+    $('runtime').textContent=d.runtime.name;
+    $('memory').textContent=d.memory.available_gb+' GB';
+    $('threshold').textContent=d.profile.score_threshold;
+    $('modelState').textContent=d.models.active_model+' / '+d.models.v2_state;
+    $('reportPath').textContent=d.paths.reports;
+    $('reportCount').textContent=(d.reports||[]).length+' 个文件';
+    $('reports').innerHTML=table(d.reports||[]);
+    if(d.active_job&&!activeJob){
+      activeJob=d.active_job;
+      setBusy(true);
+      $('jobBadge').textContent='恢复运行中任务 · '+activeJob;
+      startPolling();
+    }else if(!d.active_job&&!activeJob){
+      setBusy(false);
+    }
+  }catch(err){
+    $('reports').innerHTML='<span class="bad">状态读取失败：'+esc(err)+'</span>';
   }
 }
 refreshStatus();
@@ -509,7 +843,6 @@ refreshStatus();
 </body>
 </html>
 """
-
 
 @app.get("/")
 def index():
