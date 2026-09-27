@@ -119,7 +119,7 @@ def scan_market(
     except Exception as exc:
         announce(f"市场环境识别暂不可用，扫描继续使用原策略: {exc}")
 
-    stocks = provider.stock_list()
+    stocks = provider.stock_list(refresh=refresh)
     if limit and limit > 0:
         stocks = stocks.head(limit)
     stocks = stocks.reset_index(drop=True)
