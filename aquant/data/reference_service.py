@@ -25,7 +25,13 @@ class ReferenceDataService:
         age_hours = (time.time() - path.stat().st_mtime) / 3600
         return age_hours <= max_age_hours
 
-    def stock_list(\n        self,\n        fetcher,\n        max_age_hours: float = 18.0,\n        force: bool = False,\n        fallback_local: bool = True,\n    ) -> pd.DataFrame:
+    def stock_list(
+        self,
+        fetcher,
+        max_age_hours: float = 18.0,
+        force: bool = False,
+        fallback_local: bool = True,
+    ) -> pd.DataFrame:
         local = self.store.read_security_master()
         if not force and not local.empty and self._fresh(self.store.security_path, max_age_hours):
             return local[["code", "name"]].copy()
