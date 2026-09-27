@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from flask import Blueprint, jsonify, render_template, request
 
+from aquant.data.overview import data_overview
 from aquant.models.registry import model_status
 from aquant.runtime.resources import current_memory_gb, current_profile
 from aquant.version import __version__
@@ -43,6 +44,7 @@ def api_status():
                 "reports": str(SETTINGS.report_dir),
             },
             "reports": report_inventory(),
+            "data_center": data_overview(),
             "active_job": active_job_id(),
         }
     )
