@@ -69,7 +69,7 @@ def main() -> None:
             fake_fetch_stock_list
         )
         try:
-            fallback_securities = data_service.stock_list()
+            fallback_securities = data_service.stock_list(refresh=True)
         finally:
             service_module.fetch_stock_list_with_timeout = (
                 original_fetch_stock_list
@@ -212,7 +212,7 @@ def main() -> None:
 
         con = duckdb.connect(str(root / "aquant.duckdb"), read_only=True)
         try:
-            assert con.execute("SELECT COUNT(*) FROM security_master").fetchone()[0] == 2
+            assert con.execute("SELECT COUNT(*) FROM security_master").fetchone()[0] == 1
             assert con.execute("SELECT COUNT(*) FROM trade_calendar").fetchone()[0] == 3
             assert con.execute("SELECT COUNT(*) FROM daily_qfq").fetchone()[0] == 3
             assert con.execute("SELECT COUNT(*) FROM industry_map").fetchone()[0] == 2
