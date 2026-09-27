@@ -47,7 +47,7 @@ class FakeService:
     def latest_trade_date(self) -> pd.Timestamp:
         return pd.Timestamp("2025-08-15")
 
-    def stock_list(self) -> pd.DataFrame:
+    def stock_list(self, refresh: bool = False) -> pd.DataFrame:
         return pd.DataFrame(
             [
                 {"code": f"60000{i}", "name": f"样本{i}"}
