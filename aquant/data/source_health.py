@@ -90,15 +90,30 @@ class SourceHealthRegistry:
             state = self._read()
             old = dict(state.get(str(key), {}))
             failures = int(old.get("consecutive_failures", 0) or 0) + 1
-            # 30s, 60s, 120s ... capped at 15 minutes.
-            cooldown_seconds = min(900, 30 * (2 ** min(failures - 1, 5)))
+            # 第一次失败只记录，不立即封源；连续失败才进入冷却。
+            # 2次=30s，3次=120s，4次=300s，5次及以上=15min。
+            if failures <= 1:
+                cooldown_seconds = 0
+            elif failures == 2:
+                cooldown_seconds = 30
+            elif failures == 3:
+                cooldown_seconds = 120
+            elif failures == 4:
+                cooldown_seconds = 300
+            else:
+                cooldown_seconds = 900
+
             state[str(key)] = {
                 **old,
                 "consecutive_failures": failures,
                 "last_failure": now.isoformat(timespec="seconds"),
                 "cooldown_until": (
-                    now + timedelta(seconds=cooldown_seconds)
-                ).isoformat(timespec="seconds"),
+                    (now + timedelta(seconds=cooldown_seconds)).isoformat(
+                        timespec="seconds"
+                    )
+                    if cooldown_seconds > 0
+                    else None
+                ),
                 "last_error": str(error)[:500],
             }
             self._write(state)
