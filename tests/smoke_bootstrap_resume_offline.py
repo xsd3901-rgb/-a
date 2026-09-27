@@ -67,7 +67,7 @@ class FakeMarketDataService:
             ]
         )
 
-    def stock_list(self) -> pd.DataFrame:
+    def stock_list(self, refresh: bool = False) -> pd.DataFrame:
         return pd.DataFrame(
             [
                 {"code": "600001", "name": "样本一"},
