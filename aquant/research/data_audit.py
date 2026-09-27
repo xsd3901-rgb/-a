@@ -70,6 +70,12 @@ def audit_market_store(
         cal = cal.dropna(subset=["trade_date"])
         if "is_open" in cal.columns:
             cal = cal[cal["is_open"].astype(bool)]
+        today = (
+            pd.Timestamp.now(tz="Asia/Shanghai")
+            .tz_localize(None)
+            .normalize()
+        )
+        cal = cal[cal["trade_date"] <= today]
         cal = cal.drop_duplicates("trade_date").sort_values("trade_date")
     else:
         cal = pd.DataFrame(columns=["trade_date"])
@@ -425,15 +431,63 @@ def run_data_audit(
             lifecycle = pd.DataFrame()
             universe_source = "files_only"
 
+    calendar = reference.read_trade_calendar()
     details, summary = audit_market_store(
         SETTINGS.data_store_dir,
-        calendar=reference.read_trade_calendar(),
+        calendar=calendar,
         lifecycle=lifecycle,
         limit=limit,
         lookback_calendar_days=lookback_calendar_days,
         min_coverage=min_coverage,
     )
     summary["股票池来源"] = universe_source
+
+    calendar_source = "unknown"
+    formal_calendar = True
+    if calendar is not None and not calendar.empty:
+        cal_meta = calendar.copy()
+        if "trade_date" in cal_meta.columns:
+            cal_meta["trade_date"] = pd.to_datetime(
+                cal_meta["trade_date"],
+                errors="coerce",
+            ).dt.normalize()
+            today = (
+                pd.Timestamp.now(tz="Asia/Shanghai")
+                .tz_localize(None)
+                .normalize()
+            )
+            cal_meta = cal_meta[
+                cal_meta["trade_date"].notna()
+                & (cal_meta["trade_date"] <= today)
+            ]
+            if "is_open" in cal_meta.columns:
+                cal_meta = cal_meta[
+                    cal_meta["is_open"].astype(bool)
+                ]
+            if not cal_meta.empty and "provider" in cal_meta.columns:
+                latest_date = cal_meta["trade_date"].max()
+                latest_rows = cal_meta[
+                    cal_meta["trade_date"] == latest_date
+                ]
+                providers = {
+                    str(value).strip()
+                    for value in latest_rows["provider"].dropna()
+                    if str(value).strip()
+                }
+                if providers:
+                    calendar_source = ",".join(sorted(providers))
+                    formal_calendar = providers != {"bundled_seed"}
+
+    summary["交易日历来源"] = calendar_source
+    summary["正式交易日历"] = bool(formal_calendar)
+    if not formal_calendar:
+        if summary.get("状态") == "通过":
+            summary["状态"] = "可用但有警告"
+        summary["说明"] = (
+            str(summary.get("说明", ""))
+            + " 当前最新交易日仍仅来自 bundled_seed；seed 只用于首次启动，"
+            "正式验收需由远端交易日历或本地真实行情重建交易日历。"
+        ).strip()
     if universe_source != "security_lifecycle":
         if summary.get("状态") == "通过":
             summary["状态"] = "可用但有警告"
