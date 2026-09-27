@@ -418,6 +418,44 @@ def bootstrap_market(
                 handle_result(*future.result())
 
     context_summary: dict[str, object] = {}
+
+    # 远端交易日历在免费接口环境下可能同时超时。建库完成后用真实
+    # 未复权日线中实际出现的日期重建开市日历，避免用工作日猜测节假日。
+    try:
+        local_calendar = provider.reference.derive_trade_calendar_from_local_market()
+        if local_calendar is None or local_calendar.empty:
+            raise RuntimeError("本地真实行情不足，无法反推交易日历")
+        open_days = local_calendar[
+            local_calendar.get(
+                "is_open",
+                pd.Series(True, index=local_calendar.index),
+            ).astype(bool)
+        ]
+        calendar_latest = (
+            pd.Timestamp(open_days["trade_date"].max()).strftime("%Y-%m-%d")
+            if not open_days.empty
+            else ""
+        )
+        context_summary["交易日历"] = {
+            "来源": "derived_local_market",
+            "开市日数": int(len(open_days)),
+            "最新开市日": calendar_latest,
+        }
+        announce(
+            f"交易日历已由本地真实行情重建：{len(open_days)} 个开市日"
+            + (f"，最新 {calendar_latest}" if calendar_latest else "")
+        )
+    except Exception as exc:
+        cached_calendar = provider.reference.store.read_trade_calendar()
+        if cached_calendar is not None and not cached_calendar.empty:
+            context_summary["交易日历"] = {
+                "来源": "cached_remote",
+                "记录数": int(len(cached_calendar)),
+                "本地重建警告": str(exc)[:240],
+            }
+        else:
+            context_summary["交易日历错误"] = str(exc)[:300]
+
     try:
         context = MarketContextService()
         index_counts = context.refresh_core_indices(
