@@ -100,10 +100,58 @@ class ReferenceDataService:
                 return local
             raise
 
+    def derive_trade_calendar_from_local_market(self) -> pd.DataFrame:
+        """从已落盘的未复权真实日线反推开市日，不访问网络。
+
+        这只在远端交易日历不可用时作为正式本地日历来源。全市场日线中
+        实际出现过的日期即为真实开市日；不会用“周一到周五”猜测节假日。
+        """
+        daily_dir = self.store.root.parent / "daily" / "none"
+        files = list(daily_dir.glob("*.parquet")) if daily_dir.exists() else []
+        if not files:
+            return pd.DataFrame(columns=["trade_date", "is_open", "provider"])
+
+        import duckdb
+
+        glob_path = str(daily_dir / "*.parquet").replace("'", "''")
+        con = duckdb.connect()
+        try:
+            frame = con.execute(
+                f"""
+                SELECT DISTINCT CAST(trade_date AS DATE) AS trade_date
+                FROM read_parquet('{glob_path}', union_by_name=true)
+                WHERE trade_date IS NOT NULL
+                ORDER BY trade_date
+                """
+            ).df()
+        finally:
+            con.close()
+
+        if frame.empty:
+            return pd.DataFrame(columns=["trade_date", "is_open", "provider"])
+
+        frame["trade_date"] = pd.to_datetime(
+            frame["trade_date"], errors="coerce"
+        ).dt.normalize()
+        frame = frame.dropna(subset=["trade_date"]).drop_duplicates("trade_date")
+        frame["is_open"] = True
+        frame["provider"] = "derived_local_market"
+        self.store.save_trade_calendar(frame)
+        self.store.refresh_catalog()
+        return self.store.read_trade_calendar()
+
     def latest_trade_date(
         self,
         on_or_before: str | pd.Timestamp | None = None,
         max_age_hours: float = 18.0,
     ) -> pd.Timestamp | None:
-        self.trade_calendar(max_age_hours=max_age_hours)
+        try:
+            self.trade_calendar(max_age_hours=max_age_hours)
+        except Exception:
+            # 首次部署时两个免费交易日历接口可能同时超时。这里返回 None，
+            # 让上层仅把“今天”作为行情下载上界；正式交易日历会在真实日线
+            # 落盘后由 derive_trade_calendar_from_local_market() 重建。
+            local = self.store.read_trade_calendar()
+            if local.empty:
+                return None
         return self.store.latest_trade_date(on_or_before=on_or_before)
