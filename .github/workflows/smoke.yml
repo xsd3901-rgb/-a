@@ -60,6 +60,8 @@ jobs:
         run: PYTHONPATH=. python tests/smoke_data_repair_offline.py
       - name: Offline source-quality tracking smoke test
         run: PYTHONPATH=. python tests/smoke_source_quality_offline.py
+      - name: Offline source routing and seed resilience smoke test
+        run: PYTHONPATH=. python tests/smoke_source_routing_offline.py
       - name: Offline universe and trading rules smoke test
         run: PYTHONPATH=. python tests/smoke_universe_rules_offline.py
       - name: Offline execution rules smoke test
