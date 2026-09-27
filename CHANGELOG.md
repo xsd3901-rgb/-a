@@ -23,6 +23,13 @@ A-Quant 进入本地真实数据验收候选阶段。
 - Windows 中文批处理改为 ASCII 安全启动链：新增 `AQuant_FirstRun.cmd`、`AQuant_Start.cmd`、`AQuant_FullMarket_Acceptance.cmd`，中文 `.bat` 仅作薄封装，避免 CMD 编码导致命令乱码/闪退；安装器也改为可直接覆盖更新源码且保留 `data_store` / `reports`。
 - 清理 Windows 启动入口：移除旧的 `安装量化项目_修复版.bat`，日常启动改由轻量 `AQuant_Start.cmd` 独立负责，安装器会校验三套 ASCII 安全启动脚本是否齐全。
 - 网页终端视觉升级：增强卡片层级、状态颜色、运行中动效、按钮分组、表格可读性、滚动条和响应式布局；仅调整展示与交互，不改变数据、策略、回测及模型晋级逻辑。
+- 网页终端完成模块化拆分：`webapp.py` 仅保留启动入口，路由、后台任务、日常/数据/研究/系统动作、HTML、CSS、JavaScript 分离到 `aquant/web/`，降低后续维护耦合。
+- 数据获取改为本地优先：随项目提供沪深股票基础表与交易日历 bootstrap seed；公共接口临时不可用时可继续启动，但正式审计仍要求真实历史生命周期与点时行情，不把 seed 冒充正式验收数据。
+- 新增健康感知数据源路由：按 `stock_list / calendar / lifecycle / daily` 分开记录连续失败、延迟、冷却时间和健康评分；坏源短暂熔断后自动重新探测，避免全市场任务反复等待同一超时。
+- 新增集中式 `providers/registry.py` 与 `routing/policy.py`：数据源注册、优先顺序和超时从业务服务中抽离，便于后续增加/替换免费数据源。
+- BaoStock 正式日线改为进程内会话复用并保持串行安全，减少全市场任务中每只股票重复 login/logout 的开销；异常或达到请求批次后自动重连。
+- 网页新增数据中心概览与“更新基础资料”：展示本地股票池、交易日历、none/QFQ 建库数量、数据源健康/冷却状态和快照日期；股票基础库刷新会保留 provider 血缘。
+- 新增 `MAINTENANCE.md` 维护地图和离线 `smoke_source_routing_offline.py`，明确网页、数据源、路由、策略与回测的修改边界。
 - 扫描/回测断点续跑：成功股票自动跳过、失败股票自动重试、Ctrl+C 前保存当前批次；回测采用轻量检查点 + 原子 partial CSV，避免大 JSON 拖慢全市场任务。
 - GitHub Actions 离线验收套件保持手动触发。
 
