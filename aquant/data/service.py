@@ -79,6 +79,7 @@ class MarketDataService:
                         max_age_hours=0.0,
                         force=True,
                         fallback_local=False,
+                        provider_name=source,
                     )
                     elapsed_ms = (
                         time.monotonic() - started
