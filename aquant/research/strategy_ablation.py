@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from config import SETTINGS, ensure_directories
+from profile import load_strategy_profile
 from strategy import V1_COMPONENT_COLUMNS, V1_COMPONENT_SPECS
 
 
@@ -440,7 +441,7 @@ def run_v1_ablation(
             glob_path,
         )
         threshold = int(
-            SETTINGS.score_threshold
+            load_strategy_profile()["score_threshold"]
         )
 
         detail_rows: list[dict] = []
@@ -533,7 +534,7 @@ def run_v1_ablation(
             else ""
         ),
         "评分阈值": int(
-            SETTINGS.score_threshold
+            load_strategy_profile()["score_threshold"]
         ),
         "规则数量": len(
             V1_COMPONENT_COLUMNS
