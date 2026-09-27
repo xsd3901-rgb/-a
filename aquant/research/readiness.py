@@ -95,6 +95,7 @@ def release_readiness(
         audit_ok = (
             audit_state in {"通过", "可用但有警告"}
             and audit_summary.get("股票池来源") == "security_lifecycle"
+            and bool(audit_summary.get("正式交易日历", True))
         )
         rows.append(
             {
