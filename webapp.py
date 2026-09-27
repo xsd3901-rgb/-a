@@ -150,13 +150,29 @@ def _execute_task(job_id: str, action: str, payload: dict) -> None:
                 "rows": _records(status_frame.tail(100), 100),
             }
         elif action == "scan":
-            frame = scan_market(limit=limit, refresh=refresh)
+            frame = scan_market(
+                limit=limit,
+                refresh=refresh,
+                progress=lambda message: _set_job(
+                    job_id,
+                    status="running",
+                    message=message,
+                ),
+            )
             result = {
                 "summary": {"入选数量": len(frame)},
                 "rows": _records(frame, 100),
             }
         elif action == "backtest":
-            trades = run_backtest(limit=limit, refresh=refresh)
+            trades = run_backtest(
+                limit=limit,
+                refresh=refresh,
+                progress=lambda message: _set_job(
+                    job_id,
+                    status="running",
+                    message=message,
+                ),
+            )
             metrics = evaluate_trades(trades)
             by_regime = evaluate_by_market_regime(trades)
             _, equity, portfolio = simulate_portfolio(trades)
