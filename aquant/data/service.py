@@ -11,6 +11,7 @@ from aquant.data.providers.base import is_shsz_a_share
 from aquant.data.providers.eastmoney_akshare import EastMoneyAKShareProvider
 from aquant.data.quality import validate_bar_frame
 from aquant.data.reference_service import ReferenceDataService
+from aquant.data.routing.router import DataSourceRouter
 from aquant.data.schema import FIELDS
 from aquant.data.safe_fetch import fetch_stock_list_with_timeout
 from aquant.data.storage import MarketStore
@@ -36,41 +37,70 @@ class MarketDataService:
         self.backup = BaoStockProvider()
         self.store = MarketStore(root)
         self.source_quality = SourceQualityLog(self.store.paths.root)
+        self.router = DataSourceRouter(self.store.paths.root)
         self.reference = ReferenceDataService(root)
         self.universe = HistoricalUniverseService(root)
         self.adjust = SETTINGS.adjust if SETTINGS.adjust in {"none", "qfq", "hfq"} else "qfq"
         self._attempted_today: set[tuple[str, str]] = set()
         self._cached_market_date: pd.Timestamp | None = None
 
-    def stock_list(self) -> pd.DataFrame:
-        errors: list[str] = []
-        df = pd.DataFrame()
-        sources = (
-            ("eastmoney", 18.0, False),
-            ("exchange", 30.0, True),
-            ("baostock", 45.0, True),
-        )
+    def stock_list(self, refresh: bool = False) -> pd.DataFrame:
+        """返回当前沪深股票列表。
 
-        for source, timeout_seconds, force in sources:
-            try:
-                df = self.reference.stock_list(
-                    fetcher=lambda s=source, t=timeout_seconds: fetch_stock_list_with_timeout(s, t),
-                    max_age_hours=float(SETTINGS.cache_hours),
-                    force=force,
-                    fallback_local=False,
-                )
-                if df is not None and not df.empty:
-                    break
-            except Exception as exc:
-                errors.append(f"{source}: {exc}")
+        日常优先本地基础库，避免每次扫描都依赖外网。显式 refresh 时才
+        触发远端更新；远端全部失败则继续使用本地/随包种子。
+        """
+        local = self.reference.store.read_security_master()
+        df = pd.DataFrame()
+        errors: list[str] = []
+
+        if not refresh and local is not None and not local.empty:
+            df = local.copy()
+        else:
+            source_config = {
+                "eastmoney": 18.0,
+                "exchange": 30.0,
+                "baostock": 45.0,
+            }
+            sources = self.router.names(
+                list(source_config),
+                capability="stock_list",
+            )
+            for source in sources:
+                timeout_seconds = source_config[source]
+                started = time.monotonic()
+                try:
+                    df = self.reference.stock_list(
+                        fetcher=lambda s=source, t=timeout_seconds: fetch_stock_list_with_timeout(s, t),
+                        max_age_hours=0.0,
+                        force=True,
+                        fallback_local=False,
+                    )
+                    elapsed_ms = (
+                        time.monotonic() - started
+                    ) * 1000.0
+                    if df is not None and not df.empty:
+                        self.router.success(
+                            source,
+                            capability="stock_list",
+                            elapsed_ms=elapsed_ms,
+                        )
+                        break
+                except Exception as exc:
+                    errors.append(f"{source}: {exc}")
+                    self.router.failure(
+                        source,
+                        capability="stock_list",
+                        error=str(exc),
+                    )
 
         if df is None or df.empty:
             local = self.reference.store.read_security_master()
-            if not local.empty:
-                df = local
+            if local is not None and not local.empty:
+                df = local.copy()
             else:
                 raise RuntimeError(
-                    "股票基础库主源、交易所备用源、BaoStock 和本地快照全部不可用: "
+                    "股票基础库远端源和本地/内置快照全部不可用: "
                     + " | ".join(errors)
                 )
 
@@ -80,12 +110,21 @@ class MarketDataService:
         out = out.drop_duplicates("code")
 
         if SETTINGS.exclude_st:
-            out = out[~out["name"].str.upper().str.contains("ST", na=False)]
+            out = out[
+                ~out["name"].str.upper().str.contains(
+                    "ST",
+                    na=False,
+                )
+            ]
         if SETTINGS.market_scope == "shsz":
             out = out[out["code"].map(is_shsz_a_share)]
         elif SETTINGS.exclude_bj:
-            out = out[~out["code"].str.startswith(("4", "8", "92"))]
-        return out[["code", "name"]].reset_index(drop=True)
+            out = out[
+                ~out["code"].str.startswith(("4", "8", "92"))
+            ]
+
+        keep = [c for c in ["code", "name"] if c in out.columns]
+        return out[keep].reset_index(drop=True)
 
     def trade_calendar(self, refresh: bool = False) -> pd.DataFrame:
         return self.reference.trade_calendar(
@@ -195,12 +234,20 @@ class MarketDataService:
         prefer_point_in_time: bool = False,
     ) -> pd.DataFrame:
         errors: list[str] = []
-        providers = (
+        preferred = (
             (self.backup, self.primary)
             if prefer_point_in_time
             else (self.primary, self.backup)
         )
-        for attempt_order, provider in enumerate(providers, start=1):
+        providers = self.router.providers(
+            preferred,
+            capability="daily",
+        )
+
+        for attempt_order, provider in enumerate(
+            providers,
+            start=1,
+        ):
             started = time.monotonic()
             try:
                 gate = (
@@ -216,7 +263,9 @@ class MarketDataService:
                         adjust=adjust,
                     )
 
-                elapsed_ms = (time.monotonic() - started) * 1000.0
+                elapsed_ms = (
+                    time.monotonic() - started
+                ) * 1000.0
                 if frame is None or frame.empty:
                     detail = "empty"
                     errors.append(
@@ -236,6 +285,7 @@ class MarketDataService:
                         prefer_point_in_time=prefer_point_in_time,
                         detail=detail,
                     )
+                    # 空数据可能只是个股/区间本身没有记录，不触发全局熔断。
                     continue
 
                 self.store.save_raw(
@@ -252,10 +302,16 @@ class MarketDataService:
                 ]
                 if fatal:
                     detail = "; ".join(
-                        item.message for item in fatal
+                        item.message
+                        for item in fatal
                     )
                     errors.append(
                         f"{provider.info.provider}: {detail}"
+                    )
+                    self.router.failure(
+                        provider.info.provider,
+                        capability="daily",
+                        error=detail,
                     )
                     self.source_quality.record(
                         symbol=symbol,
@@ -280,6 +336,11 @@ class MarketDataService:
                     symbol,
                     adjust,
                 )
+                self.router.success(
+                    provider.info.provider,
+                    capability="daily",
+                    elapsed_ms=elapsed_ms,
+                )
                 self.source_quality.record(
                     symbol=symbol,
                     provider=provider.info.provider,
@@ -302,6 +363,11 @@ class MarketDataService:
                 errors.append(
                     f"{provider.info.provider}: {detail}"
                 )
+                self.router.failure(
+                    provider.info.provider,
+                    capability="daily",
+                    error=detail,
+                )
                 self.source_quality.record(
                     symbol=symbol,
                     provider=provider.info.provider,
@@ -317,7 +383,12 @@ class MarketDataService:
                     detail=detail,
                 )
 
-        raise RuntimeError(f"{symbol} 行情获取失败: " + " | ".join(errors))
+        if not errors:
+            errors.append("当前所有行情源都在冷却期")
+        raise RuntimeError(
+            f"{symbol} 行情获取失败: "
+            + " | ".join(errors)
+        )
 
     def _archive_unadjusted(self, symbol: str, start_date: str, end_date: str) -> None:
         """尽力保存未复权底稿；失败不影响当前扫描。"""
