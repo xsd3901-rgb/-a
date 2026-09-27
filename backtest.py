@@ -687,22 +687,53 @@ def run_backtest(
     resumed = 0
     pending_records: list[dict] = []
     universe_codes = set(stocks["code"].astype(str))
+    partial_path = SETTINGS.report_dir / "backtest_partial.csv"
+
+    partial_trades = pd.DataFrame()
+    if checkpoint is not None and resume_enabled and partial_path.exists():
+        try:
+            partial_trades = pd.read_csv(
+                partial_path,
+                dtype={"代码": str},
+            )
+            if "代码" in partial_trades.columns:
+                partial_trades["代码"] = (
+                    partial_trades["代码"]
+                    .astype(str)
+                    .str.zfill(6)
+                )
+        except Exception:
+            partial_trades = pd.DataFrame()
 
     if checkpoint is not None and resume_enabled:
         for _, row in stocks.iterrows():
             code = str(row["code"])
             payload = checkpoint.state.completed.get(code)
-            if payload is not None:
-                resumed += 1
-                saved_trades = payload.get("trades")
-                if isinstance(saved_trades, list):
-                    all_trades.extend(
-                        item
-                        for item in saved_trades
-                        if isinstance(item, dict)
-                    )
-            else:
+            if payload is None:
                 pending_records.append(row.to_dict())
+                continue
+
+            trade_count = int(payload.get("trade_count", 0) or 0)
+            if trade_count <= 0:
+                resumed += 1
+                continue
+
+            if (
+                not partial_trades.empty
+                and "代码" in partial_trades.columns
+            ):
+                saved = partial_trades[
+                    partial_trades["代码"].eq(code)
+                ]
+                if len(saved) >= trade_count:
+                    all_trades.extend(
+                        saved.head(trade_count).to_dict("records")
+                    )
+                    resumed += 1
+                    continue
+
+            # 检查点声称有交易，但部分结果文件缺失/损坏时宁可重算。
+            pending_records.append(row.to_dict())
     else:
         pending_records = [
             row.to_dict()
@@ -733,8 +764,6 @@ def run_backtest(
 
     completed_batch: dict[str, dict] = {}
     failed_batch: dict[str, dict] = {}
-    partial_path = SETTINGS.report_dir / "backtest_partial.csv"
-
     announce(
         f"历史股票池: {total} 只 | 正式信号区间 "
         f"{signal_start:%Y-%m-%d} ~ {market_end:%Y-%m-%d}"
@@ -747,6 +776,18 @@ def run_backtest(
 
     def flush_checkpoint() -> None:
         nonlocal completed_batch, failed_batch
+
+        # 先原子写部分交易结果，再写完成状态。这样即使两步之间断电，
+        # 最坏只会多算当前批次，不会出现“检查点已完成但交易结果丢失”。
+        if persist and all_trades:
+            partial_tmp = partial_path.with_suffix(".tmp.csv")
+            pd.DataFrame(all_trades).to_csv(
+                partial_tmp,
+                index=False,
+                encoding="utf-8-sig",
+            )
+            partial_tmp.replace(partial_path)
+
         if checkpoint is not None and (
             completed_batch or failed_batch
         ):
@@ -756,13 +797,6 @@ def run_backtest(
             )
             completed_batch = {}
             failed_batch = {}
-
-        if persist and all_trades:
-            pd.DataFrame(all_trades).to_csv(
-                partial_path,
-                index=False,
-                encoding="utf-8-sig",
-            )
 
     def handle(
         code: str,
@@ -778,7 +812,7 @@ def run_backtest(
                 "status": (
                     "trades" if trades_part else "no_trade"
                 ),
-                "trades": trades_part,
+                "trade_count": int(len(trades_part)),
             }
             failed_batch.pop(code, None)
         else:
