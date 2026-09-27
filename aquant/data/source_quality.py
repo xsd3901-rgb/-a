@@ -61,9 +61,13 @@ class SourceQualityLog:
             separators=(",", ":"),
             default=str,
         )
-        with _EVENT_LOCK:
-            with self.path.open("a", encoding="utf-8") as handle:
-                handle.write(line + "\n")
+        try:
+            with _EVENT_LOCK:
+                with self.path.open("a", encoding="utf-8") as handle:
+                    handle.write(line + "\n")
+        except Exception:
+            # 质量追踪不能反过来阻断真实行情抓取。
+            return
 
     def read(self, max_events: int | None = None) -> list[dict]:
         if not self.path.exists():
