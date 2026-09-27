@@ -18,6 +18,7 @@ A-Quant 进入本地真实数据验收候选阶段。
 - 增量建库与断点续跑：只补缺失首尾区间、失败有限重试、资源自适应并发、免费数据源并发保护与来源追踪。
 - Windows 子进程结果回传增加短暂队列等待，避免 `spawn + multiprocessing.Queue` 偶发假空结果。
 - 修正股票列表降级顺序：过期本地快照不再提前截断东方财富 → 交易所 → BaoStock 远程备用链，只有远程源全部失败后才统一回退本地。
+- Windows 启动脚本统一增强 Python 寻址：支持 `AQUANT_PYTHON`、项目 `.venv`、用户级安装、Program Files、PATH 与 `py` launcher。
 - 扫描/回测断点续跑：成功股票自动跳过、失败股票自动重试、Ctrl+C 前保存当前批次；回测采用轻量检查点 + 原子 partial CSV，避免大 JSON 拖慢全市场任务。
 - GitHub Actions 离线验收套件保持手动触发。
 
