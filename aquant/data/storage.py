@@ -97,16 +97,40 @@ class MarketStore:
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY trade_date"
-        return duckdb.execute(sql, [str(path), *params]).df()
+
+        # 不使用 duckdb.execute 的进程级默认连接。扫描/回测并发时，
+        # 每个线程使用独立内存连接，避免默认连接被多个线程共享。
+        con = duckdb.connect()
+        try:
+            return con.execute(
+                sql,
+                [str(path), *params],
+            ).df()
+        finally:
+            con.close()
 
     def latest_date(self, symbol: str, adjust: str = "none") -> pd.Timestamp | None:
         path = self._standard_path(symbol, adjust)
         if not path.exists():
             return None
-        dates = pd.read_parquet(path, columns=[FIELDS.trade_date])
-        if dates.empty:
+
+        try:
+            import duckdb
+        except ImportError as exc:
+            raise RuntimeError("缺少 duckdb 依赖，请先安装 requirements.txt") from exc
+
+        con = duckdb.connect()
+        try:
+            value = con.execute(
+                "SELECT MAX(trade_date) FROM read_parquet(?)",
+                [str(path)],
+            ).fetchone()[0]
+        finally:
+            con.close()
+
+        if value is None:
             return None
-        return pd.to_datetime(dates[FIELDS.trade_date]).max().normalize()
+        return pd.Timestamp(value).normalize()
 
     def light_stats(
         self,
@@ -116,96 +140,131 @@ class MarketStore:
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> dict:
-        """只读取日期/来源/点时状态等轻量列，避免为更新检查加载完整 OHLCV。"""
+        """用 DuckDB 聚合读取轻量统计，不把整段行情装入 pandas。"""
         path = self._standard_path(symbol, adjust)
+        empty = {
+            "rows": 0,
+            "start": None,
+            "end": None,
+            "providers": [],
+            "tradable_rows": 0,
+            "pct_change_coverage": 0.0,
+        }
         if not path.exists():
-            return {
-                "rows": 0,
-                "start": None,
-                "end": None,
-                "providers": [],
-                "tradable_rows": 0,
-                "pct_change_coverage": 0.0,
-            }
+            return empty
 
         try:
+            import duckdb
             import pyarrow.parquet as pq
         except ImportError as exc:
-            raise RuntimeError("需要 pyarrow 才能读取本地 Parquet 元数据") from exc
+            raise RuntimeError(
+                "需要 duckdb/pyarrow 才能读取本地 Parquet 统计"
+            ) from exc
 
-        schema_names = set(pq.ParquetFile(path).schema_arrow.names)
-        wanted = [
-            FIELDS.trade_date,
-            FIELDS.provider,
-            FIELDS.pct_change,
-            FIELDS.trade_status,
-        ]
-        columns = [col for col in wanted if col in schema_names]
-        if FIELDS.trade_date not in columns:
-            return {
-                "rows": 0,
-                "start": None,
-                "end": None,
-                "providers": [],
-                "tradable_rows": 0,
-                "pct_change_coverage": 0.0,
-            }
+        schema_names = set(
+            pq.ParquetFile(path).schema_arrow.names
+        )
+        if FIELDS.trade_date not in schema_names:
+            return empty
 
-        frame = pd.read_parquet(path, columns=columns)
-        dates = pd.to_datetime(
-            frame[FIELDS.trade_date], errors="coerce"
-        ).dt.normalize()
-        valid = dates.notna()
+        where: list[str] = []
+        params: list[str] = [str(path)]
         if start_date:
-            valid &= dates >= pd.Timestamp(start_date).normalize()
+            where.append(f"{FIELDS.trade_date} >= ?")
+            params.append(str(start_date))
         if end_date:
-            valid &= dates <= pd.Timestamp(end_date).normalize()
-        frame = frame.loc[valid].copy()
-        dates = dates.loc[valid]
+            where.append(f"{FIELDS.trade_date} <= ?")
+            params.append(str(end_date))
+        where_sql = (
+            " WHERE " + " AND ".join(where)
+            if where
+            else ""
+        )
 
-        if frame.empty:
-            return {
-                "rows": 0,
-                "start": None,
-                "end": None,
-                "providers": [],
-                "tradable_rows": 0,
-                "pct_change_coverage": 0.0,
-            }
+        has_status = FIELDS.trade_status in schema_names
+        has_pct = FIELDS.pct_change in schema_names
+        has_provider = FIELDS.provider in schema_names
 
-        if FIELDS.trade_status in frame.columns:
-            status = pd.to_numeric(
-                frame[FIELDS.trade_status], errors="coerce"
+        tradable_expr = (
+            f"TRY_CAST({FIELDS.trade_status} AS DOUBLE) = 1"
+            if has_status
+            else "TRUE"
+        )
+        tradable_rows_expr = (
+            f"SUM(CASE WHEN {tradable_expr} THEN 1 ELSE 0 END)"
+        )
+        if has_pct:
+            pct_coverage_expr = (
+                "CASE WHEN "
+                f"{tradable_rows_expr} > 0 THEN "
+                "SUM(CASE WHEN "
+                f"{tradable_expr} "
+                f"AND TRY_CAST({FIELDS.pct_change} AS DOUBLE) IS NOT NULL "
+                "THEN 1 ELSE 0 END) * 1.0 / "
+                f"{tradable_rows_expr} ELSE 0 END"
             )
-            tradable = status.eq(1)
         else:
-            tradable = pd.Series(True, index=frame.index)
+            pct_coverage_expr = "0.0"
 
-        pct_coverage = 0.0
-        if FIELDS.pct_change in frame.columns and bool(tradable.any()):
-            pct = pd.to_numeric(
-                frame.loc[tradable, FIELDS.pct_change],
-                errors="coerce",
-            )
-            pct_coverage = float(pct.notna().mean())
+        sql = f"""
+            SELECT
+                COUNT(*) AS rows,
+                MIN({FIELDS.trade_date}) AS start_date,
+                MAX({FIELDS.trade_date}) AS end_date,
+                {tradable_rows_expr} AS tradable_rows,
+                {pct_coverage_expr} AS pct_coverage
+            FROM read_parquet(?)
+            {where_sql}
+        """
 
-        providers: list[str] = []
-        if FIELDS.provider in frame.columns:
-            providers = sorted(
-                {
-                    str(value).strip()
-                    for value in frame[FIELDS.provider].dropna().tolist()
-                    if str(value).strip()
-                }
-            )
+        con = duckdb.connect()
+        try:
+            row = con.execute(sql, params).fetchone()
+            if row is None or int(row[0] or 0) == 0:
+                return empty
+
+            providers: list[str] = []
+            if has_provider:
+                provider_rows = con.execute(
+                    f"""
+                    SELECT DISTINCT CAST({FIELDS.provider} AS VARCHAR)
+                    FROM read_parquet(?)
+                    {where_sql}
+                    AND {FIELDS.provider} IS NOT NULL
+                    ORDER BY 1
+                    """
+                    if where
+                    else f"""
+                    SELECT DISTINCT CAST({FIELDS.provider} AS VARCHAR)
+                    FROM read_parquet(?)
+                    WHERE {FIELDS.provider} IS NOT NULL
+                    ORDER BY 1
+                    """,
+                    params,
+                ).fetchall()
+                providers = [
+                    str(item[0]).strip()
+                    for item in provider_rows
+                    if item and str(item[0]).strip()
+                ]
+        finally:
+            con.close()
 
         return {
-            "rows": int(len(frame)),
-            "start": pd.Timestamp(dates.min()).normalize(),
-            "end": pd.Timestamp(dates.max()).normalize(),
+            "rows": int(row[0] or 0),
+            "start": (
+                pd.Timestamp(row[1]).normalize()
+                if row[1] is not None
+                else None
+            ),
+            "end": (
+                pd.Timestamp(row[2]).normalize()
+                if row[2] is not None
+                else None
+            ),
             "providers": providers,
-            "tradable_rows": int(tradable.sum()),
-            "pct_change_coverage": pct_coverage,
+            "tradable_rows": int(row[3] or 0),
+            "pct_change_coverage": float(row[4] or 0.0),
         }
 
     def refresh_catalog(self) -> None:
