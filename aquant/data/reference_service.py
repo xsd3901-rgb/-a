@@ -136,7 +136,19 @@ class ReferenceDataService:
         frame = frame.dropna(subset=["trade_date"]).drop_duplicates("trade_date")
         frame["is_open"] = True
         frame["provider"] = "derived_local_market"
-        self.store.save_trade_calendar(frame)
+
+        existing = self.store.read_trade_calendar()
+        if existing is not None and not existing.empty:
+            combined = pd.concat([existing, frame], ignore_index=True, sort=False)
+            combined = (
+                combined.sort_values("trade_date")
+                .drop_duplicates("trade_date", keep="last")
+                .reset_index(drop=True)
+            )
+        else:
+            combined = frame
+
+        self.store.save_trade_calendar(combined)
         self.store.refresh_catalog()
         return self.store.read_trade_calendar()
 
