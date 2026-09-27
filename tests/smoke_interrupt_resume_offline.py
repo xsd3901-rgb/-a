@@ -16,7 +16,7 @@ class FakeProvider:
     def latest_trade_date(self) -> pd.Timestamp:
         return pd.Timestamp("2026-09-25")
 
-    def stock_list(self) -> pd.DataFrame:
+    def stock_list(self, refresh: bool = False) -> pd.DataFrame:
         return pd.DataFrame(
             [
                 {"code": "600001", "name": "中断一"},
