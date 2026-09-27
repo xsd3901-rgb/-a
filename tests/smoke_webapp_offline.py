@@ -12,7 +12,7 @@ def main() -> None:
     assert "A-Quant" in text
     assert "1.0.0-rc1" in text
     assert "一键系统验收" in text
-    assert "建立/更新本地数据库" in text
+    assert "更新本地数据库" in text
     assert "本地数据审计" in text
     assert "修复失败数据" in text
     assert "就绪检查" in text
@@ -20,6 +20,7 @@ def main() -> None:
     assert "数据中心" in text
     assert "策略研究" in text
     assert "数据源质量追踪" in text
+    assert "V1规则消融" in text
     assert "progressBar" in text
     assert "近期组合权益" in text
 
