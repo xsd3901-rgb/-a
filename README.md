@@ -274,6 +274,14 @@ reports/
 data_store/research/feature_validation/
 ```
 
+特征研究也支持断点续跑。每个已经安全写入 Parquet 分块的股票会记录到：
+
+```text
+data_store/research/feature_validation_checkpoint.json
+```
+
+同一研究日期再次运行时会跳过已经完成且对应分块仍存在的股票；分块文件被删除时不会盲信检查点。使用 `--refresh` 会重新建立研究样本。
+
 全市场验证不会一次把所有特征列全部装进内存，而是按特征逐列从 Parquet/DuckDB 读取。验证结果只用于决定下一轮应该保留、淘汰或继续观察哪些特征，当前阶段**不会自动修改正式选股评分权重**。
 
 
