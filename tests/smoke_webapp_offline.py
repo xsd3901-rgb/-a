@@ -13,8 +13,8 @@ def main() -> None:
     assert "1.0.0-rc1" in text
     assert "一键系统验收" in text
     assert "更新本地数据库" in text
-    assert "本地数据审计" in text
-    assert "修复失败数据" in text
+    assert "数据完整性审计" in text
+    assert "定向修复失败" in text
     assert "就绪检查" in text
     assert "首次完整准备" in text
     assert "数据中心" in text
