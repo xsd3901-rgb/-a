@@ -18,6 +18,7 @@ from aquant.research.local_prepare import run_local_prepare
 from aquant.research.readiness import release_readiness
 from aquant.research.system_validation import run_system_validation
 from aquant.research.stock_detail import stock_detail
+from aquant.research.source_quality import run_source_quality
 from aquant.research.portfolio import simulate_portfolio
 from optimizer import optimize_parameters
 from profile import load_strategy_profile
@@ -38,6 +39,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     audit = sub.add_parser("audit-data", help="审计本地行情完整性，不访问网络")
     audit.add_argument("--limit", type=int, default=None, help="仅检查前N个本地股票文件")
+
+    source_quality = sub.add_parser(
+        "source-quality",
+        help="查看数据源成功率、回退情况和本地多源差异",
+    )
+    source_quality.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="最多交叉检查N只同时具有双源Raw数据的股票",
+    )
 
     repair = sub.add_parser("repair-data", help="只修复数据审计中的 FAIL 股票")
     repair.add_argument("--limit", type=int, default=None, help="最多修复N只失败股票")
@@ -130,6 +142,32 @@ def main() -> None:
             if not problems.empty:
                 print("\n需要关注的数据：")
                 print(problems.head(50).to_string(index=False))
+        return
+
+    if args.command == "source-quality":
+        providers, usage, crosscheck, summary = run_source_quality(
+            crosscheck_limit=args.limit,
+            include_crosscheck=True,
+        )
+        print("\n数据源质量追踪汇总：")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        if not providers.empty:
+            print("\n数据源抓取可靠性：")
+            print(providers.to_string(index=False))
+        if not usage.empty:
+            print("\n当前本地数据源使用：")
+            print(usage.to_string(index=False))
+        if not crosscheck.empty:
+            problems = crosscheck[
+                crosscheck["状态"].astype(str) != "一致"
+            ]
+            print("\n多源交叉检查：")
+            print(
+                (problems if not problems.empty else crosscheck.head(20))
+                .head(50)
+                .to_string(index=False)
+            )
         return
 
     if args.command == "repair-data":
