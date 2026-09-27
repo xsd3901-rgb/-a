@@ -13,7 +13,7 @@ import pandas as pd
 from aquant.data.context_service import MarketContextService
 from aquant.data.service import MarketDataService
 from backtest import EXECUTION_COLUMNS, attach_execution_bars
-from strategy import score_history
+from strategy import V1_COMPONENT_COLUMNS, score_history
 from aquant.runtime.checkpoint import JsonCheckpoint
 from aquant.runtime.resources import current_profile
 from config import SETTINGS, ensure_directories
@@ -357,6 +357,7 @@ def _sample_columns() -> list[str]:
         "macd_dea",
         "score",
         "signal",
+        *V1_COMPONENT_COLUMNS,
         *(f"exec_{col}" for col in EXECUTION_COLUMNS),
         *FEATURE_SPECS.keys(),
         *(f"fwd_ret_{h}d" for h in HORIZONS),
