@@ -1,7 +1,0 @@
-{
-  "score_threshold": 68,
-  "stop_atr_multiple": 1.8,
-  "target_atr_multiple": 3.0,
-  "max_hold_days": 30,
-  "source": "default"
-}
